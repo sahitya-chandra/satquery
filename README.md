@@ -1,6 +1,6 @@
 # SatQuery AI
 
-SatQuery AI is a lightweight Streamlit prototype for asking questions about satellite imagery and seeing the visual evidence used by the answer.
+SatQuery AI is a lightweight Next.js and FastAPI prototype for asking questions about satellite imagery and seeing the visual evidence used by the answer.
 
 It demonstrates satellite-image upload, GeoTIFF/image validation, deterministic query routing, single-image question answering, text-guided region highlighting, bi-temporal change analysis, optical-SAR heuristic fusion, overlays, a prototype reliability label and an auditable execution trace.
 
@@ -10,14 +10,30 @@ This is not a benchmark-ready remote-sensing system, not a calibrated scientific
 
 ## Setup
 
+Run the backend from the repository root:
+
 ```bash
 python -m venv .venv
 source .venv/bin/activate
 pip install -r requirements.txt
-streamlit run app.py
+uvicorn backend.main:app --reload --port 8000
 ```
 
 If your system exposes Python as `python3`, use `python3 -m venv .venv`.
+
+Run the frontend in a second terminal:
+
+```bash
+cd frontend
+npm install
+npm run dev
+```
+
+Open `http://localhost:3000`. The frontend expects the backend at `http://localhost:8000` by default. Override it with:
+
+```bash
+NEXT_PUBLIC_API_BASE_URL=http://localhost:8000 npm run dev
+```
 
 ## Optional AI Baseline
 
@@ -25,7 +41,7 @@ If your system exposes Python as `python3`, use `python3 -m venv .venv`.
 pip install -r requirements-ai.txt
 ```
 
-The optional checkbox in the app lazily loads `Salesforce/blip-vqa-base` only when requested. You can point the hook at a future remote-sensing-adapted model with:
+The optional checkbox in the app asks the FastAPI backend to lazily load `Salesforce/blip-vqa-base` only when requested. You can point the hook at a future remote-sensing-adapted model with:
 
 ```bash
 export REMOTE_SENSING_MODEL_ID=your-remote-sensing-model-id
@@ -58,3 +74,13 @@ The masks are RGB, texture and intensity heuristics. Results are sensitive to se
 ## Future Model Replacement
 
 The `REMOTE_SENSING_MODEL_ID` environment variable and lazy model-loading path are intended as a simple replacement hook. A future BigEarthNet.txt-adapted or otherwise remote-sensing-adapted model can replace the generic BLIP baseline while keeping the same validation, routing, evidence and trace surfaces.
+
+## API
+
+The FastAPI backend exposes:
+
+- `GET /api/health`
+- `GET /api/demo-cases`
+- `POST /api/analyze`
+
+`POST /api/analyze` accepts multipart form data with `input_source`, `demo_case`, `analysis_mode`, `query`, `use_blip`, `first_image` and `second_image`. It returns JSON metadata, execution trace, a downloadable report string and PNG data URLs for visual evidence.
