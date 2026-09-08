@@ -2,8 +2,7 @@
 
 import { ChangeEvent, FormEvent, useEffect, useMemo, useState } from "react";
 
-const FALLBACK_API_BASE = "http://localhost:8000";
-const API_BASE = (process.env.NEXT_PUBLIC_API_BASE_URL || FALLBACK_API_BASE).replace(/\/$/, "");
+const API_BASE = "";
 const MODES = ["Auto Detect", "Single Image", "Bi-temporal Change", "Optical-SAR Pair"];
 
 type DemoCase = {
@@ -98,7 +97,7 @@ export default function Home() {
   const [inputSource, setInputSource] = useState<"demo" | "upload">("demo");
   const [analysisMode, setAnalysisMode] = useState(MODES[0]);
   const [query, setQuery] = useState("What major land-cover regions are visible?");
-  const [useBlip, setUseBlip] = useState(false);
+  const [useAI, setUseAI] = useState(false);
   const [firstFile, setFirstFile] = useState<File | null>(null);
   const [secondFile, setSecondFile] = useState<File | null>(null);
   const [analysis, setAnalysis] = useState<AnalyzeResponse | null>(null);
@@ -180,7 +179,7 @@ export default function Home() {
     form.append("demo_case", selectedCaseId);
     form.append("analysis_mode", analysisMode);
     form.append("query", query);
-    form.append("use_blip", String(useBlip));
+    form.append("use_ai", String(useAI));
     if (firstFile) {
       form.append("first_image", firstFile);
     }
@@ -189,10 +188,16 @@ export default function Home() {
     }
 
     try {
+      if (inputSource === "upload" && (firstFile?.size || 0) + (secondFile?.size || 0) > 3_900_000) {
+        throw new Error("Combined uploads must be smaller than 3.9 MB.");
+      }
       const response = await fetch(`${API_BASE}/api/analyze`, {
         method: "POST",
         body: form
       });
+      if (!response.headers.get("content-type")?.includes("application/json")) {
+        throw new Error(response.status === 413 ? "Uploads exceed the server's size limit." : `Analysis request failed (${response.status}).`);
+      }
       const payload = (await response.json()) as AnalyzeResponse;
       setAnalysis(payload);
     } catch (error) {
@@ -309,8 +314,8 @@ export default function Home() {
           </div>
 
           <label className="toggle-row">
-            <input type="checkbox" checked={useBlip} onChange={(event) => setUseBlip(event.target.checked)} />
-            <span>Use optional BLIP baseline</span>
+            <input type="checkbox" checked={useAI} onChange={(event) => setUseAI(event.target.checked)} />
+            <span>Include AI answer</span>
           </label>
 
           <button className="primary-action" type="submit" disabled={loading || apiOnline === false}>
