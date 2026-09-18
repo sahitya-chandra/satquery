@@ -5,9 +5,9 @@ import sharp from "sharp";
 import { writeArrayBuffer } from "geotiff";
 import proj4 from "proj4";
 import { toProj4 } from "geotiff-geokeys-to-proj4";
-import { runAnalysis, routeTask } from "../lib/analysis";
+import { runAnalysis } from "../lib/analysis";
 import { alignPair, loadImage, type Grid } from "../lib/analysis/images";
-import { changeMask, opticalMasks, percentage } from "../lib/analysis/masks";
+import { AnalysisFailure, validateModelAnalysis, type ModelAnalysis, type Inference } from "../lib/ai-analysis";
 
 async function scene(water = true, width = 96, height = 96) {
   const raw = Buffer.alloc(width * height * 3);
@@ -26,18 +26,33 @@ function geotiff(x = 500000, epsg = 32643, nodata = false) {
   })) };
 }
 
+const answer: ModelAnalysis = { task: "visual_question", reason: "Visual question about one image.", answer: "Water is visible near the centre.", observations: [{ image: 1, description: "A blue region is visible." }], limitations: ["Visual interpretation only."], clarification: "" };
+const infer: Inference = async () => ({ analysis: answer, model: "test:vision" });
+
 for (const [names, mode, task] of [
-  [["single_optical.png"], "Auto Detect", "SINGLE_IMAGE_VQA"],
-  [["change_before.png", "change_after.png"], "Bi-temporal Change", "BI_TEMPORAL_CHANGE"],
-  [["fusion_optical.png", "fusion_sar.png"], "Optical-SAR Pair", "OPTICAL_SAR_FUSION"],
+  [["single_optical.png"], "Auto Detect", "visual_question"],
+  [["change_before.png", "change_after.png"], "Bi-temporal Change", "change_comparison"],
+  [["fusion_optical.png", "fusion_sar.png"], "Optical-SAR Pair", "optical_sar_comparison"],
 ] as const) {
-  test(`${task} returns decodable evidence and a consistent report`, async () => {
+  test(`${task} uses model output and returns only source views and a consistent report`, async () => {
     const images = await Promise.all(names.map(async name => ({ name, data: await readFile(new URL(`../public/demo_data/${name}`, import.meta.url)) })));
-    const { status, payload } = await runAnalysis({ images, analysis_mode: mode, query: "What is visible?" });
-    assert.equal(status, 200); assert.equal(payload.result?.task, task);
-    assert.ok(Number(payload.result?.changed_or_detected_percentage) > 0);
-    assert.equal(JSON.parse(payload.report!).answer, payload.result?.answer);
-    assert.ok(Buffer.byteLength(JSON.stringify(payload)) < 4_000_000);
+    let calls = 0;
+    const { status, payload } = await runAnalysis({ images, analysis_mode: mode, query: "Explain this scene", is_demo: true }, async input => {
+      calls++;
+      assert.equal(input.images.length, names.length);
+      assert.ok(input.warnings.some(w => w.includes("synthetic")));
+      assert.ok(input.images.every(i => i.src.startsWith("data:image/png;base64,")));
+      return { analysis: { ...answer, task }, model: "test:vision" };
+    });
+    assert.equal(calls, 1); assert.equal(status, 200); assert.equal(payload.result?.task, task);
+    assert.equal(payload.result?.answer, answer.answer);
+    assert.equal(payload.visuals.length, images.length);
+    assert.equal("changed_or_detected_percentage" in payload.result!, false);
+    assert.equal("reliability" in payload.result!, false);
+    const report = JSON.parse(payload.report!);
+    assert.equal(report.answer, payload.result?.answer);
+    assert.deepEqual(report.observations, payload.result?.observations);
+    assert.deepEqual(report.execution_trace, payload.trace);
     for (const item of payload.visuals) {
       const metadata = await sharp(Buffer.from(item.src.split(",")[1], "base64")).metadata();
       assert.equal(metadata.format, "png"); assert.ok(metadata.width! <= 384);
@@ -45,65 +60,68 @@ for (const [names, mode, task] of [
   });
 }
 
-test("water and vegetation masks locate synthetic regions", async () => {
-  const raster = await loadImage(await scene());
-  const masks = opticalMasks(raster);
-  assert.ok(percentage(masks.water, raster.valid) > 20);
-  assert.ok(percentage(masks.water, raster.valid) < 30);
-  assert.ok(percentage(masks.vegetation, raster.valid) > 65);
-  assert.equal(masks.water[48 * 96 + 48], 1);
-  assert.equal(masks.water[5 * 96 + 5], 0);
-});
-
-test("grounding returns a bounding box for water", async () => {
-  const { payload } = await runAnalysis({ images: [await scene()], analysis_mode: "Single Image", query: "Highlight water" });
-  assert.equal(payload.result?.task, "TEXT_GUIDED_GROUNDING");
-  assert.ok(Array.isArray(payload.result?.bbox));
-});
-
-test("identical images have zero change; a localized edit produces change", async () => {
-  const first = await loadImage(await scene(false)), second = await loadImage(await scene());
-  assert.equal(percentage(changeMask(first, first), first.valid), 0);
-  const changed = changeMask(first, second);
-  assert.ok(percentage(changed, first.valid) > 15);
-  assert.ok(percentage(changed, first.valid) < 40);
-});
-
-test("ambiguous auto-detection does not choose a task silently", () => {
-  assert.equal(routeTask(2, "Auto Detect", "compare images").task, "UNSUPPORTED");
-  assert.equal(routeTask(2, "Auto Detect", "what changed in the radar images").task, "UNSUPPORTED");
-  assert.equal(routeTask(2, "Bi-temporal Change", "what changed in radar").task, "BI_TEMPORAL_CHANGE");
-});
-
-test("bad files and missing pairs return validation errors", async () => {
-  for (const [images, analysis_mode] of [
-    [[{ name: "broken.png", data: Buffer.from("bad") }], "Single Image"],
-    [[await scene()], "Bi-temporal Change"],
-    [[], "Auto Detect"],
-  ] as const) {
-    const result = await runAnalysis({ images: [...images], analysis_mode, query: "" });
-    assert.equal(result.status, 400); assert.equal(result.payload.ok, false);
+test("clarification and unsupported requests preserve the model response without fake measurements", async () => {
+  for (const task of ["clarification", "unsupported"] as const) {
+    const { payload, status } = await runAnalysis({ images: [await scene()], analysis_mode: "Auto Detect", query: "Can you help with this?" }, async () => ({ model: "test:vision", analysis: { ...answer, task, observations: [], clarification: task === "clarification" ? "Which region?" : "" } }));
+    assert.equal(status, 200); assert.equal(payload.routing?.task, task);
+    assert.deepEqual(payload.result?.observations, []);
+    assert.equal("metrics" in payload.result!, false);
   }
 });
 
-test("ordinary pairs resize to the first grid", async () => {
-  const first = await loadImage(await scene()), second = await loadImage(await scene(true, 64, 64));
-  const aligned = alignPair(first, second);
-  assert.equal(aligned.width, first.width); assert.equal(aligned.height, first.height);
-  assert.equal(aligned.data.length, first.data.length);
+test("model failure never falls back to heuristic results and does not expose provider secrets", async () => {
+  for (const [error, expected] of [[{ statusCode: 429, message: "secret" }, 429], [{ statusCode: 401, message: "secret" }, 503], [new AnalysisFailure(504, "Timed out"), 504], [new Error("secret"), 502]] as const) {
+    const { status, payload } = await runAnalysis({ images: [await scene()], analysis_mode: "Single Image", query: "What is visible?" }, async () => { throw error; });
+    assert.equal(status, expected); assert.equal(payload.ok, false);
+    assert.equal(payload.result, null); assert.equal(payload.report, null);
+    assert.equal(JSON.stringify(payload).includes("secret"), false);
+  }
 });
 
-test("GeoTIFF projected area and NaN nodata survive JSON serialization", async () => {
+test("bad inputs never invoke the model", async () => {
+  const valid = await scene();
+  for (const [images, mode, query] of [
+    [[{ name: "broken.png", data: Buffer.from("bad") }], "Single Image", "Question"],
+    [[valid], "Bi-temporal Change", "Question"], [[], "Auto Detect", "Question"],
+    [[valid], "Single Image", ""], [[valid], "Invalid mode", "Question"],
+  ] as const) {
+    let called = false;
+    const { status } = await runAnalysis({ images: [...images], analysis_mode: mode, query }, async input => { called = true; return infer(input); });
+    assert.equal(status, 400); assert.equal(called, false);
+  }
+});
+
+test("invalid model image references, tasks and schemas are rejected", async () => {
+  for (const invalid of [{ ...answer, observations: [{ image: 2, description: "Unknown input" }] }, { ...answer, task: "change_comparison" as const }, { ...answer, answer: "" }]) {
+    const { status, payload } = await runAnalysis({ images: [await scene()], analysis_mode: "Single Image", query: "Question" }, async () => ({ model: "test:vision", analysis: invalid }));
+    assert.equal(status, 502); assert.equal(payload.result, null);
+  }
+  assert.throws(() => validateModelAnalysis({ ...answer, task: "invented_tool" }));
+  assert.throws(() => validateModelAnalysis({ ...answer, task: "clarification", clarification: "" }));
+  assert.equal("metrics" in validateModelAnalysis({ ...answer, metrics: { water_percentage: 90 } }), false);
+});
+
+test("a model-authored unsupported explanation is displayed even if its answer field is empty", async () => {
+  const modelResponse = { ...answer, task: "unsupported" as const, answer: "", reason: "I cannot generate a trained segmentation mask.", observations: [] };
+  const { status, payload } = await runAnalysis({ images: [await scene()], analysis_mode: "Single Image", query: "Generate a precise building mask" }, async () => ({ model: "test:vision", analysis: modelResponse }));
+  assert.equal(status, 200);
+  assert.equal(payload.result?.task, "unsupported");
+  assert.equal(payload.result?.answer, modelResponse.reason);
+  assert.equal(JSON.parse(payload.report!).answer, modelResponse.reason);
+  assert.equal(modelResponse.answer, "");
+});
+
+test("GeoTIFF metadata and nodata survive the model path without generating area estimates", async () => {
   const input = geotiff(500000, 32643, true);
   const raster = await loadImage(input);
-  assert.equal(raster.metadata.crs, "EPSG:32643");
-  assert.ok(raster.projection, JSON.stringify(raster.warnings));
-  assert.equal(raster.valid[0], 0);
-  const { payload, status } = await runAnalysis({ images: [input], query: "What is visible?", analysis_mode: "Single Image" });
+  assert.equal(raster.metadata.crs, "EPSG:32643"); assert.equal(raster.valid[0], 0);
+  const { payload, status } = await runAnalysis({ images: [input], query: "What is visible?", analysis_mode: "Single Image" }, async request => {
+    const pixels = await sharp(Buffer.from(request.images[0].src.split(",")[1], "base64")).raw().toBuffer();
+    assert.deepEqual([...pixels.subarray(0, 3)], [128, 128, 128]);
+    return infer(request);
+  });
   assert.equal(status, 200);
-  const area = payload.result?.area_measurement as { available: boolean; area_square_metres: number };
-  assert.equal(area.available, true);
-  assert.ok(Number.isFinite(area.area_square_metres));
+  assert.equal("area_measurement" in payload.result!, false);
   assert.doesNotThrow(() => JSON.parse(payload.report!));
 });
 

@@ -1,9 +1,4 @@
-fastapi>=0.115
-starlette<1.0
-uvicorn[standard]>=0.30
-python-multipart>=0.0.9
+# Only needed to regenerate the synthetic demo illustrations.
 numpy>=1.26
 pillow>=10.0
 opencv-python-headless>=4.9
-rasterio>=1.3
-pytest>=8.0

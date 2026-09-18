@@ -1,12 +1,8 @@
 # SatQuery AI
 
-SatQuery AI is a Next.js/TypeScript prototype for asking questions about satellite imagery and seeing the visual evidence used by the answer. Next.js Route Handlers run the complete analysis in Node.js, and Vercel AI SDK provides optional model answers. No Python runtime, subprocess, external backend or writable disk is required. The original FastAPI backend is retained separately in `backend/main.py`.
+A Next.js prototype for asking questions about satellite/aerial imagery through a configured vision-language model. The model interprets the question, selects a task and returns visual observations, limitations or a clarification request in a validated structured response.
 
-It demonstrates satellite-image upload, GeoTIFF/image validation, deterministic query routing, single-image question answering, text-guided region highlighting, bi-temporal change analysis, optical-SAR heuristic fusion, overlays, a prototype reliability label and an auditable execution trace.
-
-## What It Does Not Claim
-
-This is not a benchmark-ready remote-sensing system, not a calibrated scientific model and not an operational geospatial measurement service. The default analysis is deterministic image processing. Optional BLIP support is a generic VQA baseline and does not satisfy the final remote-sensing adaptation requirement by itself.
+There is no keyword router, colour/texture segmentation, synthetic confidence score, measured coverage estimate or heuristic answer fallback. The obsolete Python/FastAPI heuristic service has been removed. Image decoding, size limits, geospatial validation and preview preparation remain normal code.
 
 ## Setup
 
@@ -15,93 +11,55 @@ Use Node.js 22 or later:
 ```bash
 cd frontend
 npm install
-npm run dev
 ```
 
-Open `http://localhost:3000`. All browser requests use the Next.js origin. `frontend/lib/analysis` contains image decoding, GeoTIFF validation/alignment, task routing, masks, evidence checks and report generation. Sharp handles PNG/JPEG decoding and PNG encoding; GeoTIFF.js and Proj4 handle geospatial rasters. The bundled demo images live in `frontend/public/demo_data`.
+Create `frontend/.env.local` (never commit the key):
 
-## Deploy to Vercel
-
-1. Import the repository and set **Root Directory** to `frontend`.
-2. Use the **Next.js** framework preset, `npm run build`, and the default output directory.
-3. Add the optional model environment variables below in the Vercel project settings.
-4. Deploy. The deterministic demo and upload workflows work without API keys.
-
-The API uses the Node.js runtime. `next.config.ts` includes demo files in the analysis function's traced bundle and keeps native/image libraries as server dependencies. No files outside `frontend` are needed at build time or runtime.
-
-[Vercel Functions limit request and response bodies to 4.5 MB](https://vercel.com/docs/functions/limitations). This app caps multipart requests and JSON responses at 4 MB; the browser caps combined uploads at 3.9 MB to allow form overhead. Larger uploads need a direct object-storage upload workflow, which is not included here. Images are limited to 4 million source pixels; TIFFs additionally allow at most 16 bands and 16 million samples. Analysis is downsampled to a maximum side of 768 pixels, and returned PNG previews to 384 pixels. No full-resolution analysis is claimed.
-
-## AI Models
-
-Create `frontend/.env.local` using `frontend/.env.example` as a reference:
-
-```bash
-SATQUERY_AI_MODEL=openai:gpt-4o-mini
-OPENAI_API_KEY=your-key
+```dotenv
+SATQUERY_AI_MODEL=google:gemini-2.5-flash
+GOOGLE_GENERATIVE_AI_API_KEY=your-key
 ```
 
-Select **Include AI answer** to send the source image previews, query and deterministic evidence to the configured model. Without this option, analysis stays local. Model failures preserve the deterministic result and add a warning. AI text does not replace masks, measured percentages or the heuristic reliability label.
+Then run `npm run dev` in `frontend` and open `http://localhost:3000`.
 
-`frontend/lib/models.ts` registers OpenAI, Anthropic and Google using the [AI SDK provider registry](https://ai-sdk.dev/docs/ai-sdk-core/provider-management). Change `SATQUERY_AI_MODEL` to a vision-capable `provider:model-id`; set the matching `OPENAI_API_KEY`, `ANTHROPIC_API_KEY` or `GOOGLE_GENERATIVE_AI_API_KEY`. To add another provider, install its AI SDK adapter and add it to the registry and provider-ID validation in that file. No API route changes are required. Keys remain on the server.
+The registry in `frontend/lib/models.ts` also supports `openai:model-id` with `OPENAI_API_KEY` and `anthropic:model-id` with `ANTHROPIC_API_KEY`. Choose a vision-capable model supporting structured output. Only one provider is required. The UI checks configuration presence; successful inference is the test of credentials, quota and model access.
 
-## Retained FastAPI Backend
+Analysis sends the question, image previews and metadata to the configured provider. No optional AI toggle or offline inference fallback remains. Missing configuration returns 503; access/model errors return 503, rate limits 429, timeouts 504 and unusable model responses 502. No raw SDK errors or API keys are returned/logged.
 
-The original service and optional BLIP integration remain available independently:
+## Supported workflows
 
-```bash
-python -m venv .venv
-source .venv/bin/activate
-pip install -r requirements.txt
-uvicorn backend.main:app --reload --port 8000
-```
+- **Single Image:** qualitative questions and verbal descriptions of visible regions.
+- **Auto Detect:** the model interprets the question and images; ambiguous requests produce a clarification question.
+- **Bi-temporal Change:** qualitative comparison; upload earlier first, later second. Acquisition dates are not verified.
+- **Optical-SAR Pair:** qualitative visual comparison; upload optical first, SAR second. This is not calibrated or learned sensor fusion.
 
-For its optional BLIP baseline:
+Demo scenes are synthetic illustrations. Uploaded PNG/JPEG previews are shown locally; TIFF previews appear after decoding on the server. Results show the model, observations linked to numbered source images, limitations, input metadata and execution trace. A downloadable JSON report preserves those results. Cancel stops waiting in the browser and propagates an abort signal where supported; provider processing may already have started.
 
-```bash
-pip install -r requirements-ai.txt
-```
+## Capabilities deliberately unavailable
 
-The legacy API's `use_blip=true` field lazily loads `Salesforce/blip-vqa-base`. You can point that hook at a future remote-sensing-adapted model with:
+The connected vision-language model does not supply trained pixel masks, reliable exact counts, measured land-cover percentages/areas or calibrated SAR analysis. Requests for these should return an explicit unsupported-capability response rather than fabricated masks or numbers. Model output can still be wrong; structured validation verifies response shape and input references, not scientific accuracy. Specialist segmentation/change models and real-image evaluation remain future work.
 
-```bash
-export REMOTE_SENSING_MODEL_ID=your-remote-sensing-model-id
-```
+## Images and GeoTIFFs
 
-The base app works without PyTorch, Transformers or BLIP.
+PNG, JPEG, TIFF and GeoTIFF are accepted. Inputs are limited to 4 million pixels, and TIFFs to 16 bands/16 million samples. The first TIFF image and first three bands (or first band for grayscale) are used, independently contrast-stretched; natural RGB band order and calibrated radiometry are not assumed. Invalid pixels are greyed out in previews.
 
-## Demo Queries
+The model receives PNG views up to 768 pixels per side; display previews are at most 384 pixels. Small objects can disappear. Metadata includes original/analysis dimensions, resolved CRS, bounds and nodata. GeoTIFF pairs with unresolved coordinate systems or no valid overlap are rejected. The model receives original views, not pixelwise difference maps. PNG/JPEG co-registration cannot be verified.
 
-```text
-What major land-cover regions are visible?
-```
+## Deploy
 
-```text
-What changed between these two dates, and where?
-```
+Set the hosting project's root directory to `frontend`, use the Next.js preset, and set the same server environment variables before deploying. No Python runtime, local model weights or GPU is required for the hosted API model.
 
-```text
-Use the optical and SAR images together to identify water and built-up regions.
-```
+Requests and responses are capped at 4 MB; the browser limits combined uploads to 3.9 MB. Larger imagery needs object storage and a separate processing workflow. Model calls have a 60-second timeout and no automatic retries. The route declares a 150-second maximum duration; choose hosting settings that support it.
 
-## Supported Formats
-
-PNG, JPEG, TIFF and GeoTIFF are supported. GeoTIFF.js reads dimensions, bands, CRS keys, geographic bounds, analysis-grid pixel resolution, nodata and data type. The first TIFF image and its first three bands (or first band for grayscale) are used. Invalid/nodata pixels are excluded from percentage denominators. Original dimensions and analysis dimensions are reported separately.
-
-## Known Limitations
-
-The masks are RGB, texture and intensity heuristics. Results are sensitive to season, illumination, atmospheric effects, sensor differences, clouds, shadows and image alignment. PNG/JPEG pairs are resized when necessary and treated as already co-registered. Reliable ground-area measurement requires a projected GeoTIFF.
-
-The TypeScript implementation preserves the workflows, not bit-for-bit OpenCV output: built-up masks use local texture, LAB differences use a box smoothing filter, and pair resampling uses nearest neighbours. Grounding returns the largest component's bounding box. Supported GeoTIFF coordinate systems are reprojected to the first analysis grid, and only valid overlapping pixels are measured. Unresolved CRS pairs and non-overlapping pairs are rejected. Single-image inputs with an unresolved CRS can still produce visual evidence, with a warning and no ground-area measurement. Projected area uses the affine determinant and coordinate-unit conversion; geographic degree coordinates never produce square-metre estimates. Downsampling reduces spatial detail and makes area estimates approximate.
+A public deployment can consume your provider quota. Per-user authentication/quotas and distributed concurrency controls are not implemented; apply hosting access controls or add those before unrestricted public use.
 
 ## API
 
-Next.js exposes:
+- `GET /api/health`: application status and AI configuration presence (no credentials).
+- `GET /api/demo-cases`: bundled scene metadata.
+- `POST /api/analyze`: multipart fields `input_source` (`demo`/`upload`), `demo_case`, `analysis_mode`, `query` (1–8000 characters), `first_image`, `second_image`. Every valid analysis uses the model; legacy `use_ai` fields have no effect.
 
-- `GET /api/health`
-- `GET /api/demo-cases`
-- `POST /api/analyze`
-
-`POST /api/analyze` accepts multipart form data with `input_source` (`demo` or `upload`), `demo_case`, `analysis_mode`, `query`, `use_ai` (`true` or `false`), `first_image` and `second_image`. Queries are limited to 8000 characters. It returns JSON metadata, execution trace, a downloadable report string and PNG data URLs for visual evidence. Input errors return 400, oversized requests 413 and processing failures 500. Model errors return a successful deterministic result with a warning. Static `/demo_data/:filename` URLs serve the bundled demo images.
+Successful responses contain `result` (`task`, `answer`, `reason`, `observations`, `limitations`, `clarification`, `model`, `all_warnings`), numbered source previews, metadata, routing, validation, trace and a JSON report. Clarification/unsupported are valid model responses with HTTP 200. Invalid inputs return 400 or 413. Provider failures return explicit errors and no substitute answer/report.
 
 ## Verification
 
@@ -110,8 +68,26 @@ cd frontend
 npm test
 npm run lint
 npm run build
+npm run start
 ```
 
-With Next.js running, run `npm run test:api` in `frontend` for API integration checks. Set `SATQUERY_TEST_URL` for a different origin. The AI integration check requests one optional model answer; without model credentials it checks the deterministic fallback.
+With the server running, `npm run test:api` checks health and validation without paid inference. Explicitly opt into live model calls with:
 
-The retained Python implementation's tests can still be run separately with `.venv/bin/python -m pytest -q` from the repository root.
+```bash
+SATQUERY_TEST_LIVE=1 npm run test:api
+```
+
+Set `SATQUERY_TEST_URL` for another origin. Unit tests use injected model responses and verify schema checks, clarification, errors, preview preparation, no heuristic fallback and geospatial handling. Live checks send bundled demo images to the configured provider and may consume quota.
+
+`generate_demo_data.py` is an optional synthetic illustration generator, not an analysis engine. Its dependencies are in `requirements.txt`; generated files for deployment live in `frontend/public/demo_data`.
+
+Browser regressions can run against an already running Chrome/Chromium debugging session:
+
+```bash
+google-chrome --headless --remote-debugging-port=9227 --user-data-dir=/tmp/satquery-browser about:blank
+# In another terminal, with the app also running:
+cd frontend
+npm run test:browser
+```
+
+Set `SATQUERY_BROWSER_DEBUG_URL` if Chrome uses a different port. This test stubs model responses in the browser (no provider calls) and checks uploads/previews, mode switching, stale results, demo isolation, result rendering, report download and cancellation. Live provider coverage is separate. Screenshots/reports are written to a temporary directory printed by the test.

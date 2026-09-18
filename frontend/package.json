@@ -7,8 +7,9 @@
     "build": "next build",
     "start": "next start",
     "lint": "eslint .",
+    "test:browser": "node tests/browser.mjs",
     "test:api": "node --test tests/api.test.mjs",
-    "test": "tsx --test tests/analysis.test.ts"
+    "test": "tsx --test tests/*.test.ts"
   },
   "dependencies": {
     "@ai-sdk/anthropic": "^4.0.49",
