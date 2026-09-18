@@ -9,20 +9,19 @@ There is no keyword router, colour/texture segmentation, synthetic confidence sc
 Use Node.js 22 or later:
 
 ```bash
-cd frontend
 npm install
 ```
 
-Create `frontend/.env.local` (never commit the key):
+Create `.env.local` (never commit the key):
 
 ```dotenv
 SATQUERY_AI_MODEL=google:gemini-2.5-flash
 GOOGLE_GENERATIVE_AI_API_KEY=your-key
 ```
 
-Then run `npm run dev` in `frontend` and open `http://localhost:3000`.
+Then run `npm run dev` from the repository root and open `http://localhost:3000`.
 
-The registry in `frontend/lib/models.ts` also supports `openai:model-id` with `OPENAI_API_KEY` and `anthropic:model-id` with `ANTHROPIC_API_KEY`. Choose a vision-capable model supporting structured output. Only one provider is required. The UI checks configuration presence; successful inference is the test of credentials, quota and model access.
+The registry in `lib/models.ts` also supports `openai:model-id` with `OPENAI_API_KEY` and `anthropic:model-id` with `ANTHROPIC_API_KEY`. Choose a vision-capable model supporting structured output. Only one provider is required. The UI checks configuration presence; successful inference is the test of credentials, quota and model access.
 
 Analysis sends the question, image previews and metadata to the configured provider. No optional AI toggle or offline inference fallback remains. Missing configuration returns 503; access/model errors return 503, rate limits 429, timeouts 504 and unusable model responses 502. No raw SDK errors or API keys are returned/logged.
 
@@ -47,7 +46,7 @@ The model receives PNG views up to 768 pixels per side; display previews are at 
 
 ## Deploy
 
-Set the hosting project's root directory to `frontend`, use the Next.js preset, and set the same server environment variables before deploying. No Python runtime, local model weights or GPU is required for the hosted API model.
+Use the repository root (`.`) as the hosting project's root directory, use the Next.js preset, and set the same server environment variables before deploying. No Python runtime, local model weights or GPU is required for the hosted API model.
 
 Requests and responses are capped at 4 MB; the browser limits combined uploads to 3.9 MB. Larger imagery needs object storage and a separate processing workflow. Model calls have a 60-second timeout and no automatic retries. The route declares a 150-second maximum duration; choose hosting settings that support it.
 
@@ -64,7 +63,6 @@ Successful responses contain `result` (`task`, `answer`, `reason`, `observations
 ## Verification
 
 ```bash
-cd frontend
 npm test
 npm run lint
 npm run build
@@ -79,14 +77,13 @@ SATQUERY_TEST_LIVE=1 npm run test:api
 
 Set `SATQUERY_TEST_URL` for another origin. Unit tests use injected model responses and verify schema checks, clarification, errors, preview preparation, no heuristic fallback and geospatial handling. Live checks send bundled demo images to the configured provider and may consume quota.
 
-Bundled synthetic illustrations live only in `frontend/public/demo_data`. The Python generator, dependencies and virtual environment have been removed; development and deployment use Node.js only.
+Bundled synthetic illustrations live only in `public/demo_data`. The Python generator, dependencies and virtual environment have been removed; development and deployment use Node.js only.
 
 Browser regressions can run against an already running Chrome/Chromium debugging session:
 
 ```bash
 google-chrome --headless --remote-debugging-port=9227 --user-data-dir=/tmp/satquery-browser about:blank
 # In another terminal, with the app also running:
-cd frontend
 npm run test:browser
 ```
 
