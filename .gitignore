@@ -4,6 +4,7 @@ __pycache__/
 .venv/
 
 .next/
+.vercel/
 node_modules/
 out/
 .env.local
