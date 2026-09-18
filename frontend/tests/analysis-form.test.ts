@@ -2,6 +2,7 @@ import assert from "node:assert/strict";
 import test from "node:test";
 import { buildAnalysisForm, type AnalysisFormInput } from "../lib/analysis-form";
 import { modelConfiguration } from "../lib/model-config";
+import { MAX_UPLOAD_BYTES, uploadError } from "../lib/analysis-options";
 
 const base: AnalysisFormInput = {
   inputSource: "upload", demoCase: "single", mode: "Single Image", query: "Water?",
@@ -29,6 +30,19 @@ test("auto mode accepts one image, pair modes require two, and active uploads ar
   }
   assert.throws(() => buildAnalysisForm({ ...base, firstFile: null }), /first image/);
   assert.throws(() => buildAnalysisForm({ ...base, firstFile: new File(["x"], "bad.pdf") }), /PNG/);
+});
+
+test("selection and submission share upload boundaries and reject empty or unsupported files", () => {
+  const image = new File([new Uint8Array(MAX_UPLOAD_BYTES)], "image.TIFF");
+  assert.equal(uploadError([image]), null);
+  assert.doesNotThrow(() => buildAnalysisForm({ ...base, firstFile: image }));
+  const extra = new File(["x"], "extra.jpeg");
+  assert.match(uploadError([image, extra])!, /3.9 MB/);
+  assert.throws(() => buildAnalysisForm({ ...base, mode: "Auto Detect", firstFile: image, secondFile: extra }), /3.9 MB/);
+  for (const invalid of [new File([], "empty.png"), new File(["x"], "file.pdf")]) {
+    assert.match(uploadError([invalid])!, /non-empty PNG/);
+    assert.throws(() => buildAnalysisForm({ ...base, mode: "Auto Detect", secondFile: invalid }), /non-empty PNG/);
+  }
 });
 
 test("AI configuration requires a supported provider and matching key, and never returns secrets", () => {
