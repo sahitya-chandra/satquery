@@ -1,467 +1,205 @@
 "use client";
 
-import { ChangeEvent, FormEvent, useEffect, useMemo, useRef, useState } from "react";
+import Link from "next/link";
+import { useCallback, useEffect, useRef, useState, type FormEvent } from "react";
+import { ArrowDown, ArrowRight, ArrowUpRight, Check, ChevronRight, CircleHelp, CirclePlus, Clock3, Compass, ImageIcon, Layers2, LoaderCircle, Orbit, Radar, RefreshCw, ScanLine, Sparkles, Upload, X } from "lucide-react";
+import { Alert, AlertDescription, AlertTitle } from "@/components/ui/alert";
+import { Button } from "@/components/ui/button";
+import { Card } from "@/components/ui/card";
+import { Dialog, DialogContent, DialogDescription, DialogHeader, DialogTitle, DialogTrigger } from "@/components/ui/dialog";
+import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
+import { Separator } from "@/components/ui/separator";
+import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
+import { Textarea } from "@/components/ui/textarea";
+import { Tooltip, TooltipContent, TooltipTrigger } from "@/components/ui/tooltip";
+import { ImageInput, ImageView } from "@/components/workspace/image-input";
+import { AnalysisResult, LoadingAnalysis } from "@/components/workspace/analysis-result";
+import { buildAnalysisForm } from "@/lib/analysis-form";
+import { errorPayload, type AnalysisPayload } from "@/lib/contracts";
+import { cn } from "@/lib/utils";
 
-import { buildAnalysisForm } from "../lib/analysis-form";
+type DemoCase = { id: string; name: string; mode: string; files: string[]; query: string; image_urls: string[] };
+const modeOptions = [
+  { value: "Auto Detect", label: "Let AI choose", icon: Sparkles, description: "The model chooses the analysis from your question and images." },
+  { value: "Single Image", label: "Explore one image", icon: ImageIcon, description: "Ask about visible features, land cover, or the overall scene." },
+  { value: "Bi-temporal Change", label: "Compare two dates", icon: Clock3, description: "Add the earlier image first, then the later image of the same place." },
+  { value: "Optical-SAR Pair", label: "Compare optical & SAR", icon: Radar, description: "Add optical first and SAR second for a qualitative visual comparison." },
+];
+const exampleTitles: Record<string, string> = { single: "Explore a landscape", change: "Spot the differences", fusion: "Two sensor views" };
 
-const API_BASE = "";
-const MODES = ["Auto Detect", "Single Image", "Bi-temporal Change", "Optical-SAR Pair"];
-
-type DemoCase = {
-  id: string;
-  name: string;
-  mode: string;
-  files: string[];
-  query: string;
-  image_urls: string[];
-};
-
-type Check = {
-  name: string;
-  status: string;
-  message: string;
-};
-
-type TraceStep = {
-  step: string;
-  tool: string;
-  status: string;
-  parameters: Record<string, unknown>;
-  duration_ms: number;
-  message: string;
-};
-
-type Visual = {
-  id: string;
-  label: string;
-  src: string;
-};
-
-type AnalysisSummary = {
-  task: string;
-  answer: string;
-  model: string;
-  reason: string;
-  clarification: string;
-  observations: { image: number; description: string }[];
-  limitations: string[];
-  all_warnings: string[];
-};
-
-type AnalyzeResponse = {
-  ok: boolean;
-  error?: string | null;
-  errors?: string[];
-  result?: AnalysisSummary | null;
-  visuals: Visual[];
-  input_metadata: Record<string, unknown>[];
-  validation?: {
-    valid: boolean;
-    checks: Check[];
-    warnings: string[];
-    errors: string[];
-  } | null;
-  routing?: {
-    task: string;
-    reason: string;
-    required_tools?: string[];
-  } | null;
-  trace: TraceStep[];
-  report?: string | null;
-};
-
-function imageUrl(url: string): string {
-  if (url.startsWith("data:") || url.startsWith("http")) {
-    return url;
-  }
-  return `${API_BASE}${url}`;
+async function readService(signal?: AbortSignal) {
+  return Promise.allSettled([
+    fetch("/api/health", { signal }).then(async response => { if (!response.ok) throw new Error("Offline"); return response.json(); }),
+    fetch("/api/demo-cases", { signal }).then(async response => { if (!response.ok) throw new Error("Examples unavailable"); return response.json(); }),
+  ]);
 }
 
-function UploadPreview({ file }: { file: File }) {
-  const [src, setSrc] = useState<string | null>(null);
-  const isTIFF = /\.tiff?$/i.test(file.name);
-  const tooLarge = file.size > 3_900_000;
-  useEffect(() => {
-    if (isTIFF || tooLarge) return;
-    const reader = new FileReader();
-    reader.onload = () => setSrc(String(reader.result));
-    reader.readAsDataURL(file);
-    return () => { reader.onload = null; reader.abort(); };
-  }, [file, isTIFF, tooLarge]);
-  return <figure>
-    {src ? <img src={src} alt={file.name} /> : <p className="preview-note">{tooLarge ? "This file exceeds the 3.9 MB upload limit." : isTIFF ? "TIFF preview available after analysis." : "Loading preview…"}</p>}
-    <figcaption>{file.name}</figcaption>
-  </figure>;
+function Guide() {
+  return <Dialog><DialogTrigger asChild><Button variant="ghost" size="sm" className="text-muted-foreground"><CircleHelp className="size-4" /><span className="hidden sm:inline">How it works</span><span className="sr-only sm:hidden">How it works</span></Button></DialogTrigger><DialogContent className="sm:max-w-lg"><DialogHeader><DialogTitle>A closer look, in three steps</DialogTitle><DialogDescription>Turn a question about your imagery into a visual explanation.</DialogDescription></DialogHeader>
+    <ol className="space-y-5 py-3">{[["Choose your imagery", "Upload one image, or a pair for comparison. PNG, JPEG and GeoTIFF files are supported."], ["Ask what you want to know", "Describe a scene or ask about visible differences. Let AI choose a task, or select a mode."], ["Review the evidence", "Read the answer alongside source-linked observations, limitations and a downloadable report."]].map(([title, text], i) => <li key={title} className="flex gap-3"><span className="flex size-7 shrink-0 items-center justify-center rounded-full bg-accent text-xs font-semibold text-primary">{i + 1}</span><div><p className="text-sm font-semibold">{title}</p><p className="mt-1 text-sm leading-6 text-muted-foreground">{text}</p></div></li>)}</ol>
+    <div className="rounded-lg bg-muted p-4 text-xs leading-6 text-muted-foreground">Image previews, metadata and your question are sent to the configured AI provider. Answers are visual interpretations. Exact counts, pixel masks, measured areas and calibrated SAR fusion are not available. Examples use synthetic illustrations.</div>
+  </DialogContent></Dialog>;
 }
 
 export default function Home() {
-  const [demoCases, setDemoCases] = useState<DemoCase[]>([]);
-  const [selectedCaseId, setSelectedCaseId] = useState("single");
-  const [inputSource, setInputSource] = useState<"demo" | "upload">("demo");
-  const [analysisMode, setAnalysisMode] = useState(MODES[0]);
-  const [query, setQuery] = useState("What major land-cover regions are visible?");
-  const requestController = useRef<AbortController | null>(null);
-  const [firstFile, setFirstFile] = useState<File | null>(null);
-  const [secondFile, setSecondFile] = useState<File | null>(null);
-  const [analysis, setAnalysis] = useState<AnalyzeResponse | null>(null);
+  const [cases, setCases] = useState<DemoCase[]>([]);
+  const [caseId, setCaseId] = useState("single");
+  const [source, setSource] = useState<"upload" | "demo">("upload");
+  const [mode, setMode] = useState("Auto Detect");
+  const [query, setQuery] = useState("");
+  const [first, setFirst] = useState<File | null>(null);
+  const [second, setSecond] = useState<File | null>(null);
+  const [addSecond, setAddSecond] = useState(false);
+  const [analysis, setAnalysis] = useState<AnalysisPayload | null>(null);
+  const [inputError, setInputError] = useState<string | null>(null);
   const [loading, setLoading] = useState(false);
-  const [aiConfigured, setAIConfigured] = useState(false);
   const [apiOnline, setApiOnline] = useState<boolean | null>(null);
+  const [aiConfigured, setAiConfigured] = useState(false);
+  const [highlightedImage, setHighlightedImage] = useState<number | null>(null);
+  const request = useRef<AbortController | null>(null);
+  const resultArea = useRef<HTMLDivElement>(null);
+  const question = useRef<HTMLTextAreaElement>(null);
+  const highlightTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
+  const selectedCase = cases.find(item => item.id === caseId);
+  const pairRequired = ["Bi-temporal Change", "Optical-SAR Pair"].includes(mode);
+  const showSecond = mode !== "Single Image" && (pairRequired || addSecond || !!second);
+  const hasImages = source === "demo" ? !!selectedCase : !!first && (!pairRequired || !!second);
+  const imageCount = source === "demo" ? selectedCase?.files.length || 0 : Number(!!first) + Number(showSecond && !!second);
+  const selectedMode = modeOptions.find(item => item.value === mode)!;
+  const suggestions = mode === "Bi-temporal Change" ? ["What changed between these dates?", "How has the vegetation changed?"] : mode === "Optical-SAR Pair" ? ["Compare the water patterns in both views.", "What can each sensor tell us?"] : ["Describe the main land-cover regions.", "Where is water visible?", "What stands out in this scene?"];
 
-  useEffect(() => {
-    let active = true;
-
-    async function loadCases() {
-      try {
-        const healthResponse = await fetch(`${API_BASE}/api/health`);
-        const health = await healthResponse.json();
-        if (active) {
-          setAIConfigured(health.ai?.configured === true);
-          setApiOnline(healthResponse.ok);
-        }
-
-        const casesResponse = await fetch(`${API_BASE}/api/demo-cases`);
-        if (!casesResponse.ok) {
-          throw new Error("Demo cases unavailable.");
-        }
-        const payload = (await casesResponse.json()) as { cases: DemoCase[] };
-        if (!active) {
-          return;
-        }
-        setDemoCases(payload.cases);
-        const firstCase = payload.cases[0];
-        if (firstCase) {
-          setSelectedCaseId(firstCase.id);
-          setAnalysisMode(firstCase.mode);
-          setQuery(firstCase.query);
-        }
-      } catch {
-        if (active) {
-          setApiOnline(false);
-        }
-      }
-    }
-
-    loadCases();
-    return () => {
-      active = false;
-      requestController.current?.abort();
-    };
+  const applyService = useCallback(([health, examples]: Awaited<ReturnType<typeof readService>>) => {
+    setApiOnline(health.status === "fulfilled");
+    setAiConfigured(health.status === "fulfilled" && health.value.ai?.configured === true);
+    if (examples.status === "fulfilled") setCases(examples.value.cases);
   }, []);
 
-  const selectedCase = useMemo(
-    () => demoCases.find((demoCase) => demoCase.id === selectedCaseId) ?? demoCases[0],
-    [demoCases, selectedCaseId]
-  );
+  useEffect(() => {
+    const controller = new AbortController();
+    void readService(controller.signal).then(result => { if (!controller.signal.aborted) applyService(result); });
+    return () => { controller.abort(); request.current?.abort(); if (highlightTimer.current) clearTimeout(highlightTimer.current); };
+  }, [applyService]);
 
-  const visibleDemoImages = selectedCase?.image_urls.map(imageUrl) ?? [];
-  const needsSecondUpload = inputSource === "upload" && analysisMode !== "Single Image";
-  const warnings = analysis?.result?.all_warnings ?? analysis?.validation?.warnings ?? [];
+  function loadService() { void readService().then(applyService); }
 
-  function selectDemoCase(demoCase: DemoCase) {
-    setSelectedCaseId(demoCase.id);
-    setInputSource("demo");
-    setAnalysisMode(demoCase.mode);
-    setQuery(demoCase.query);
-    setAnalysis(null);
-  }
-
-  function onFileChange(which: "first" | "second", event: ChangeEvent<HTMLInputElement>) {
-    const nextFile = event.target.files?.[0] ?? null;
-    setAnalysis(null);
-    if (which === "first") {
-      setFirstFile(nextFile);
-    } else {
-      setSecondFile(nextFile);
+  function clearResult() { setAnalysis(null); setInputError(null); }
+  function chooseExample(item: DemoCase) { setCaseId(item.id); setSource("demo"); setMode(item.mode); setQuery(item.query); clearResult(); }
+  function changeMode(value: string) {
+    setMode(value); clearResult();
+    if (source === "demo") {
+      const matchingId = value === "Single Image" ? "single" : value === "Bi-temporal Change" ? "change" : value === "Optical-SAR Pair" ? "fusion" : null;
+      if (matchingId) setCaseId(matchingId);
     }
+    if (value === "Single Image") { setSecond(null); setAddSecond(false); }
   }
-
+  function acceptFiles(files: File[], position: "first" | "second") {
+    if (loading || !files.length) return;
+    const limit = position === "first" && mode !== "Single Image" ? 2 : 1;
+    if (files.length > limit) { setInputError(`Choose up to ${limit} image${limit === 1 ? "" : "s"} for this slot.`); return; }
+    if (files.some(file => !file.size || !/\.(png|jpe?g|tiff?)$/i.test(file.name))) { setInputError("Choose a non-empty PNG, JPEG, TIFF or GeoTIFF image."); return; }
+    const nextFirst = position === "first" ? files[0] : first;
+    const nextSecond = position === "second" ? files[0] : files[1] || second;
+    const activeSecond = mode === "Single Image" ? null : nextSecond;
+    if ((nextFirst?.size || 0) + (activeSecond?.size || 0) > 3_900_000) { setInputError("These images exceed the 3.9 MB combined limit. Choose smaller files or remove an image first."); return; }
+    setFirst(nextFirst); setSecond(activeSecond); if (activeSecond) setAddSecond(true); clearResult();
+  }
+  function reset() { setFirst(null); setSecond(null); setAddSecond(false); setSource("upload"); setQuery(""); setMode("Auto Detect"); clearResult(); question.current?.focus(); }
   async function analyze(event: FormEvent<HTMLFormElement>) {
     event.preventDefault();
-    setLoading(true);
-    setAnalysis(null);
-
+    if (loading) return;
+    setAnalysis(null); setInputError(null);
+    let form: FormData;
+    try { form = buildAnalysisForm({ inputSource: source, demoCase: caseId, mode, query, firstFile: first, secondFile: second }); }
+    catch (error) { setInputError(error instanceof Error ? error.message : "Check your inputs."); return; }
+    const controller = new AbortController(); request.current = controller; setLoading(true);
     try {
-      const form = buildAnalysisForm({ inputSource, demoCase: selectedCaseId, mode: analysisMode, query, firstFile, secondFile });
-      const controller = new AbortController();
-      requestController.current = controller;
-      const response = await fetch(`${API_BASE}/api/analyze`, {
-        method: "POST",
-        body: form,
-        signal: AbortSignal.any([controller.signal, AbortSignal.timeout(90_000)])
-      });
-      if (!response.headers.get("content-type")?.includes("application/json")) {
-        throw new Error(response.status === 413 ? "Uploads exceed the server's size limit." : `Analysis request failed (${response.status}).`);
-      }
-      const payload = (await response.json()) as AnalyzeResponse;
-      setAnalysis(payload);
+      const response = await fetch("/api/analyze", { method: "POST", body: form, signal: AbortSignal.any([controller.signal, AbortSignal.timeout(90_000)]) });
+      if (!response.headers.get("content-type")?.includes("application/json")) throw new Error(response.status === 413 ? "Uploads exceed the server limit. Choose smaller images." : `Analysis failed (${response.status}). Please try again.`);
+      setAnalysis(await response.json());
     } catch (error) {
-      setAnalysis({
-        ok: false,
-        error: error instanceof Error && error.name === "AbortError" ? "Analysis cancelled." : error instanceof Error && error.name === "TimeoutError" ? "Analysis timed out. Please retry." : error instanceof Error ? error.message : "Request failed.",
-        errors: [],
-        visuals: [],
-        input_metadata: [],
-        trace: []
-      });
-    } finally {
-      requestController.current = null;
-      setLoading(false);
-    }
+      setAnalysis(errorPayload(error instanceof Error && error.name === "AbortError" ? "Analysis cancelled. Your images and question are still here." : error instanceof Error && error.name === "TimeoutError" ? "Analysis took too long. Your inputs are saved here; please try again." : error instanceof Error ? error.message : "Request failed. Please try again."));
+    } finally { request.current = null; setLoading(false); }
   }
-
+  useEffect(() => {
+    if (analysis?.result) resultArea.current?.scrollIntoView({ behavior: window.matchMedia("(prefers-reduced-motion: reduce)").matches ? "instant" : "smooth", block: "nearest" });
+  }, [analysis]);
   function downloadReport() {
-    if (!analysis?.report) {
-      return;
-    }
-    const blob = new Blob([analysis.report], { type: "application/json" });
-    const url = URL.createObjectURL(blob);
-    const anchor = document.createElement("a");
-    anchor.href = url;
-    anchor.download = "satquery_ai_report.json";
-    anchor.click();
-    URL.revokeObjectURL(url);
+    if (!analysis?.report) return;
+    const url = URL.createObjectURL(new Blob([analysis.report], { type: "application/json" }));
+    const link = document.createElement("a"); link.href = url; link.download = "satquery_ai_report.json"; link.click();
+    setTimeout(() => URL.revokeObjectURL(url), 1000);
   }
+  function viewImage(image: number) {
+    const target = document.getElementById(`image-${image}`);
+    target?.scrollIntoView({ behavior: window.matchMedia("(prefers-reduced-motion: reduce)").matches ? "instant" : "smooth", block: "center" });
+    target?.focus({ preventScroll: true }); setHighlightedImage(image);
+    if (highlightTimer.current) clearTimeout(highlightTimer.current);
+    highlightTimer.current = setTimeout(() => setHighlightedImage(null), 2500);
+  }
+  const labels = mode === "Bi-temporal Change" ? ["Earlier image", "Later image"] : mode === "Optical-SAR Pair" ? ["Optical image", "SAR image"] : ["Image 1", "Image 2"];
+  const status = apiOnline === null ? "Connecting" : !apiOnline ? "Connection unavailable" : !aiConfigured ? "AI setup needed" : "AI connected";
+  const error = analysis && !analysis.ok ? analysis.error : null;
 
-  return (
-    <main className="app-shell">
-      <header className="topbar">
-        <div>
-          <p className="eyebrow">SatQuery AI</p>
-          <h1>Satellite image analysis</h1>
+  return <div className="min-h-screen">
+    <header className="border-b bg-white/90">
+      <div className="mx-auto flex h-[72px] max-w-[1440px] items-center gap-6 px-5 sm:px-8 lg:px-12">
+        <Link href="/" aria-label="SatQuery home" className="flex items-center gap-2.5"><span className="flex size-9 items-center justify-center rounded-xl bg-primary text-white"><Orbit className="size-5" strokeWidth={1.6} /></span><span className="text-xl font-semibold tracking-[-0.8px]">satquery<span className="text-primary">.</span></span></Link>
+        <Separator orientation="vertical" className="hidden !h-5 sm:block" />
+        <span className="hidden items-center gap-2 text-xs font-medium text-muted-foreground sm:flex"><Layers2 className="size-3.5" />Workspace</span>
+        <div className="ml-auto flex items-center gap-2 sm:gap-5"><span className="flex items-center gap-1.5 text-[11px] text-muted-foreground" role="status" data-testid="connection-status"><span className={cn("size-1.5 rounded-full", apiOnline && aiConfigured ? "bg-emerald-500" : apiOnline === null ? "animate-pulse bg-slate-400" : "bg-amber-500")} />{status}</span><Guide /></div>
+      </div>
+    </header>
+
+    <main className="mx-auto max-w-[1440px] px-5 pb-8 pt-8 sm:px-8 lg:px-12 lg:pt-10">
+      <div className="mb-7 flex flex-wrap items-end justify-between gap-5">
+        <div><p className="mb-2 text-[10px] font-semibold tracking-[.16em] text-primary">A DIFFERENT PERSPECTIVE</p><h1 className="text-[30px] font-semibold tracking-[-1.1px] sm:text-[36px]">Ask your imagery.</h1><p className="mt-2 max-w-2xl text-sm leading-6 text-muted-foreground">Explore a scene. Compare two moments. See what your imagery has to say.</p></div>
+        <Tooltip><TooltipTrigger asChild><Button type="button" variant="outline" size="sm" className="bg-white" disabled={loading || (!first && !query && source === "upload")} onClick={reset}><CirclePlus className="size-3.5" />New analysis</Button></TooltipTrigger><TooltipContent>Clear your images and question</TooltipContent></Tooltip>
+      </div>
+
+      {apiOnline !== null && (!apiOnline || !aiConfigured) && <Alert className="mb-6 border-amber-200 bg-amber-50"><CircleHelp className="size-4" /><AlertTitle>{!apiOnline ? "Unable to connect to the analysis service" : "Connect an AI model to get started"}</AlertTitle><AlertDescription className="flex flex-wrap items-center gap-3"><span>{!apiOnline ? "Check your connection and try again. Your selected images will stay here." : "Add the model ID and API key to the server environment, then restart the app."}</span><Button type="button" variant="outline" size="sm" className="bg-white" onClick={() => void loadService()}><RefreshCw className="size-3" />Check again</Button></AlertDescription></Alert>}
+
+      <form onSubmit={analyze} onKeyDown={event => { if ((event.metaKey || event.ctrlKey) && event.key === "Enter" && hasImages && query.trim() && apiOnline && aiConfigured && !loading) { event.preventDefault(); event.currentTarget.requestSubmit(); } }}>
+        <div className="grid items-start gap-5 lg:grid-cols-[minmax(0,1fr)_350px] xl:grid-cols-[minmax(0,1fr)_380px]">
+          <Card className="gap-0 overflow-hidden py-0 shadow-[0_4px_24px_-16px_#17453140]" id="imagery">
+            <div className="flex flex-wrap items-center justify-between gap-3 border-b px-5 py-4 sm:px-6"><div className="flex items-center gap-2.5"><span className="flex size-6 items-center justify-center rounded-full bg-primary text-[11px] font-semibold text-white">1</span><h2 className="text-sm font-semibold">Your imagery</h2></div><span className="text-[11px] text-muted-foreground">{imageCount ? `${imageCount} image${imageCount > 1 ? "s" : ""} selected` : "Every question starts with an image"}</span></div>
+            <Tabs value={source} onValueChange={value => { if (loading) return; if (value === "demo" && selectedCase) chooseExample(selectedCase); else { setSource(value as "upload" | "demo"); clearResult(); } }} className="gap-0">
+              <div className="flex flex-wrap items-center justify-between gap-2 px-5 pb-4 pt-5 sm:px-6"><TabsList className="h-9 bg-muted"><TabsTrigger value="upload" disabled={loading} className="gap-1.5 px-3 text-xs"><Upload className="size-3.5" />Upload images</TabsTrigger><TabsTrigger value="demo" disabled={loading} className="gap-1.5 px-3 text-xs"><Compass className="size-3.5" />Try an example</TabsTrigger></TabsList><span className="text-[10px] text-muted-foreground">Up to 3.9 MB combined</span></div>
+              <TabsContent value="upload" className="mt-0 px-5 pb-5 sm:px-6">
+                <div className={cn("grid gap-3", showSecond && "sm:grid-cols-2")} data-testid="upload-grid">
+                  <div id="image-1" tabIndex={-1} className={cn("min-w-0 rounded-xl outline-none transition-shadow", highlightedImage === 1 && "ring-2 ring-primary ring-offset-4")}><ImageInput file={first} label={labels[0]} disabled={loading} multiple={mode !== "Single Image"} serverPreview={analysis?.result ? analysis.visuals[0]?.src : undefined} onFiles={files => acceptFiles(files, "first")} onRemove={() => { setFirst(null); clearResult(); }} /></div>
+                  {showSecond && <div id="image-2" tabIndex={-1} className={cn("min-w-0 rounded-xl outline-none transition-shadow", highlightedImage === 2 && "ring-2 ring-primary ring-offset-4")}><ImageInput file={second} label={labels[1]} optional={!pairRequired} disabled={loading} serverPreview={analysis?.result ? analysis.visuals[1]?.src : undefined} onFiles={files => acceptFiles(files, "second")} onRemove={() => { setSecond(null); if (!pairRequired) setAddSecond(false); clearResult(); }} /></div>}
+                </div>
+                <div className="mt-4 flex flex-wrap items-center justify-between gap-2"><p className="flex items-center gap-1.5 text-[11px] text-muted-foreground"><ScanLine className="size-3.5" />PNG, JPEG, TIFF & GeoTIFF</p>{mode === "Auto Detect" && !showSecond && <Button type="button" variant="ghost" size="sm" className="h-7 px-2 text-[11px] text-primary" disabled={loading} onClick={() => setAddSecond(true)}><CirclePlus className="size-3.5" />Add a second image</Button>}{mode === "Auto Detect" && showSecond && !second && <Button type="button" variant="ghost" size="sm" className="h-7 px-2 text-[11px]" disabled={loading} onClick={() => setAddSecond(false)}><X className="size-3" />Use one image</Button>}</div>
+              </TabsContent>
+              <TabsContent value="demo" className="mt-0 px-5 pb-5 sm:px-6">
+                {selectedCase ? <><div className={cn("grid gap-3", selectedCase.files.length > 1 && "sm:grid-cols-2")}>{selectedCase.image_urls.map((url, i) => <div id={`image-${i + 1}`} tabIndex={-1} key={url} className={cn("min-w-0 rounded-xl outline-none", highlightedImage === i + 1 && "ring-2 ring-primary ring-offset-4")}><ImageView src={url} name={selectedCase.files[i]} label={`Image ${i + 1}`} caption="Synthetic example illustration, not a real satellite observation." /></div>)}</div><p className="mb-4 mt-3 text-[10px] text-muted-foreground">Synthetic example · For exploring the workflow, not evaluating accuracy.</p></> : <div className="rounded-lg bg-muted p-8 text-center text-sm text-muted-foreground">{apiOnline === null ? "Loading examples…" : "Examples could not be loaded."}<Button type="button" variant="link" onClick={() => void loadService()}>Try again</Button></div>}
+                <div className="grid grid-cols-1 gap-2 sm:grid-cols-3">{cases.map((item, i) => <button key={item.id} type="button" disabled={loading} aria-pressed={caseId === item.id} onClick={() => chooseExample(item)} className={cn("flex items-center gap-2 rounded-lg border p-2.5 text-left transition-colors hover:bg-muted focus-visible:outline-2 focus-visible:outline-ring disabled:opacity-50", caseId === item.id ? "border-primary/40 bg-accent/60" : "bg-white")} data-example={item.id}><img src={item.image_urls[0]} alt="" className="size-8 shrink-0 rounded object-cover" /><span className="min-w-0"><span className="block text-[9px] text-muted-foreground">EXAMPLE 0{i + 1}</span><span className="block text-[11px] font-medium">{exampleTitles[item.id] || item.name}</span></span>{caseId === item.id && <Check className="ml-auto size-3 shrink-0 text-primary" />}</button>)}</div>
+              </TabsContent>
+            </Tabs>
+            {inputError && <Alert variant="destructive" className="mx-5 mb-5 w-auto border-destructive/25 bg-red-50/60" data-testid="input-error"><CircleHelp className="size-4" /><AlertTitle>Check your image</AlertTitle><AlertDescription>{inputError}</AlertDescription></Alert>}
+          </Card>
+
+          <Card className="gap-0 overflow-hidden py-0 shadow-[0_4px_24px_-16px_#17453140]">
+            <div className="flex items-center gap-2.5 border-b px-5 py-4"><span className="flex size-6 items-center justify-center rounded-full bg-accent text-[11px] font-semibold text-primary">2</span><h2 className="text-sm font-semibold">What would you like to know?</h2></div>
+            <div className="space-y-5 p-5">
+              <div><label htmlFor="analysis-mode" className="mb-2 block text-[11px] font-semibold text-muted-foreground">ANALYSIS MODE</label><Select value={mode} onValueChange={changeMode} disabled={loading}><SelectTrigger id="analysis-mode" className="h-11 w-full bg-white"><SelectValue /></SelectTrigger><SelectContent>{modeOptions.map(item => <SelectItem key={item.value} value={item.value}><span className="flex items-center gap-2"><item.icon className="size-3.5 text-primary" />{item.label}</span></SelectItem>)}</SelectContent></Select><p className="mt-2 text-[11px] leading-5 text-muted-foreground">{selectedMode.description}</p></div>
+              <Separator />
+              <div><label htmlFor="query" className="mb-2 block text-[11px] font-semibold text-muted-foreground">YOUR QUESTION</label><Textarea ref={question} id="query" value={query} onChange={event => { setQuery(event.target.value); clearResult(); }} disabled={loading} maxLength={8000} placeholder="What can you tell me about this landscape?" className="min-h-[135px] resize-y bg-[#fafcfb] p-3 text-sm leading-6 placeholder:text-muted-foreground/65" /><div className="mt-1.5 flex items-center justify-between text-[10px] text-muted-foreground"><span>Be as curious or specific as you like.</span><span aria-label={`${query.length} of 8000 characters`}>{query.length.toLocaleString()}/8,000</span></div></div>
+              <div><p className="mb-2.5 text-[10px] font-medium text-muted-foreground">NEED A STARTING POINT?</p><div className="flex flex-col gap-2">{suggestions.map(suggestion => <button type="button" key={suggestion} disabled={loading} onClick={() => { setQuery(suggestion); clearResult(); question.current?.focus(); }} className="group flex items-center justify-between gap-3 rounded-md border border-transparent px-2 py-1 text-left text-xs leading-5 text-muted-foreground transition-colors hover:border-border hover:bg-muted hover:text-foreground focus-visible:outline-2 disabled:opacity-50"><span>{suggestion}</span><ArrowUpRight className="size-3 shrink-0 text-muted-foreground/60 group-hover:text-primary" /></button>)}</div></div>
+              <div className="pt-1"><Button type="submit" className="h-11 w-full gap-2 text-sm shadow-sm" disabled={loading || !apiOnline || !aiConfigured || !hasImages || !query.trim()} data-testid="analyze">{loading ? <><LoaderCircle className="size-4 animate-spin" />Analysing imagery…</> : <><Sparkles className="size-4" />Analyse imagery<ArrowRight className="ml-auto size-4" /></>}</Button><p className="mt-2 text-center text-[10px] text-muted-foreground">{!hasImages ? "Add your imagery to get started" : !query.trim() ? "Write a question or choose a suggestion" : "Ctrl / ⌘ + Enter to analyse"}</p></div>
+              <p className="border-t pt-3 text-[10px] leading-[1.7] text-muted-foreground">Your question and image previews are sent to the configured AI provider when you analyse. Results are visual interpretations.</p>
+            </div>
+          </Card>
         </div>
-        <div className={`api-status ${apiOnline ? "online" : apiOnline === false ? "offline" : ""}`}>
-          <span aria-hidden="true" />
-          {apiOnline === null ? "Checking API" : apiOnline ? "API online" : "API offline"}
-        </div>
-      </header>
+      </form>
 
-      <section className="workspace">
-        <form onSubmit={analyze}>
-        <fieldset className="control-panel" disabled={loading}>
-          <div className="field-group">
-            <label>Demo Case</label>
-            <div className="segmented demo-grid">
-              {demoCases.map((demoCase) => (
-                <button
-                  type="button"
-                  key={demoCase.id}
-                  className={selectedCaseId === demoCase.id && inputSource === "demo" ? "selected" : ""}
-                  onClick={() => selectDemoCase(demoCase)}
-                >
-                  {demoCase.name}
-                </button>
-              ))}
-            </div>
-          </div>
+      {error && <Alert variant="destructive" className="mt-5 border-destructive/25 bg-red-50/60" data-testid="analysis-error"><CircleHelp className="size-4" /><AlertTitle>{error.startsWith("Analysis cancelled") ? "Analysis cancelled" : "Let’s try that again"}</AlertTitle><AlertDescription>{error}</AlertDescription></Alert>}
 
-          <div className="field-row">
-            <div className="field-group">
-              <label>Input Source</label>
-              <div className="segmented">
-                <button
-                  type="button"
-                  className={inputSource === "demo" ? "selected" : ""}
-                  onClick={() => { if (selectedCase) selectDemoCase(selectedCase); }}
-                >
-                  Demo
-                </button>
-                <button
-                  type="button"
-                  className={inputSource === "upload" ? "selected" : ""}
-                  onClick={() => { setInputSource("upload"); setAnalysis(null); }}
-                >
-                  Upload
-                </button>
-              </div>
-            </div>
+      <div ref={resultArea} className="mt-6 scroll-mt-6">
+        {loading ? <LoadingAnalysis onCancel={() => request.current?.abort()} /> : analysis?.result ? <AnalysisResult analysis={analysis} onDownload={downloadReport} onEditQuestion={() => { question.current?.scrollIntoView({ block: "center" }); question.current?.focus(); }} onViewImage={viewImage} /> : !error && <div className="flex flex-col items-center justify-center gap-3 rounded-xl border border-dashed px-5 py-7 text-center sm:flex-row sm:gap-4 sm:py-6"><div className="flex size-9 shrink-0 items-center justify-center rounded-full bg-white"><ScanLine className="size-4 text-primary/65" /></div><div className="sm:text-left"><p className="text-xs font-medium">A place for your next discovery</p><p className="mt-1 text-[11px] text-muted-foreground">Your answer, visual observations, and source references will appear here.</p></div><ArrowDown className="hidden size-3.5 text-muted-foreground/40 sm:ml-auto sm:block" /></div>}
+      </div>
 
-            <div className="field-group">
-              <label htmlFor="analysis-mode">Analysis Mode</label>
-              <select id="analysis-mode" value={analysisMode} onChange={(event) => { setAnalysisMode(event.target.value); setAnalysis(null); if (event.target.value === "Single Image") setSecondFile(null); }}>
-                {MODES.map((mode) => (
-                  <option key={mode} value={mode}>
-                    {mode}
-                  </option>
-                ))}
-              </select>
-            </div>
-          </div>
-
-          {inputSource === "upload" ? (
-            <div className="upload-grid">
-              <label className="file-drop">
-                <span>{analysisMode === "Optical-SAR Pair" ? "Optical Image" : "First Image"}</span>
-                <input type="file" accept=".png,.jpg,.jpeg,.tif,.tiff" onChange={(event) => onFileChange("first", event)} />
-                <strong>{firstFile?.name ?? "Choose file"}</strong>
-              </label>
-              {needsSecondUpload ? (
-                <label className="file-drop">
-                  <span>{analysisMode === "Optical-SAR Pair" ? "SAR Image" : analysisMode === "Auto Detect" ? "Second Image (optional)" : "Second Image"}</span>
-                  <input type="file" accept=".png,.jpg,.jpeg,.tif,.tiff" onChange={(event) => onFileChange("second", event)} />
-                  <strong>{secondFile?.name ?? "Choose file"}</strong>
-                </label>
-              ) : null}
-            </div>
-          ) : null}
-
-          <div className="field-group">
-            <label htmlFor="query">Natural-language Query</label>
-            <textarea id="query" value={query} onChange={(event) => { setQuery(event.target.value); setAnalysis(null); }} maxLength={8000} rows={4} />
-          </div>
-
-          <small>{aiConfigured ? "Analysis sends your question and image previews to the configured AI provider. Results are visual interpretations; pixel masks and measured areas are not available." : "AI analysis is not configured. Set a model and API key on the server to analyse images."}</small>
-          {analysisMode === "Bi-temporal Change" && <small>Upload the earlier image first and the later image second.</small>}
-          {analysisMode === "Optical-SAR Pair" && <small>Upload optical first and SAR second. Results describe visible evidence; calibrated sensor fusion is not available.</small>}
-
-          <button className="primary-action" type="submit" disabled={loading || apiOnline !== true || !aiConfigured}>
-            {loading ? "Asking the model…" : "Analyse with AI"}
-          </button>
-        </fieldset>
-        {loading && <button className="cancel-action" type="button" onClick={() => requestController.current?.abort()}>Cancel analysis</button>}
-        </form>
-
-        <section className="analysis-panel">
-          {analysis?.result ? (
-            <div className="result-stack">
-              <div className="metric-strip">
-                <div>
-                  <span>Task</span>
-                  <strong>{analysis.result.task.replaceAll("_", " ")}</strong>
-                </div>
-                <div>
-                  <span>Model</span>
-                  <strong>{analysis.result.model}</strong>
-                </div>
-                <div>
-                  <span>Result type</span>
-                  <strong>Visual interpretation</strong>
-                </div>
-              </div>
-
-              <section className="answer-band">
-                <h2>{analysis.result.task === "clarification" ? "Clarification needed" : analysis.result.task === "unsupported" ? "Capability unavailable" : "AI answer"}</h2>
-                <p>{analysis.result.answer}</p>
-                {analysis.result.clarification && <p className="clarification">{analysis.result.clarification}</p>}
-                {analysis.result.task === "clarification" && <small>Update your question or analysis mode above, then analyse again.</small>}
-              </section>
-
-              {analysis.result.observations.length > 0 && <section className="answer-band">
-                <h2>Visual observations</h2>
-                <ul>{analysis.result.observations.map((observation, i) => <li key={i}><strong>Image {observation.image}:</strong> {observation.description}</li>)}</ul>
-              </section>}
-
-              <section className="visual-grid" aria-label="Source images">
-                {analysis.visuals.map((visual) => (
-                  <figure key={visual.id}>
-                    <img src={visual.src} alt={visual.label} />
-                    <figcaption>{visual.label}</figcaption>
-                  </figure>
-                ))}
-              </section>
-            </div>
-          ) : (
-            <div className="preview-stack">
-              <div className="preview-copy">
-                <h2>{inputSource === "upload" ? "Selected uploads" : selectedCase?.name ?? "SatQuery AI"}</h2>
-                <p>{query}</p>
-              </div>
-              <div className="visual-grid preview-grid" aria-label="Selected images">
-                {inputSource === "upload" ? <>
-                  {firstFile ? <UploadPreview key={`first-${firstFile.name}-${firstFile.lastModified}-${firstFile.size}`} file={firstFile} /> : <p>Choose an image to preview.</p>}
-                  {needsSecondUpload && secondFile && <UploadPreview key={`second-${secondFile.name}-${secondFile.lastModified}-${secondFile.size}`} file={secondFile} />}
-                </> : visibleDemoImages.map((url, index) => (
-                  <figure key={url}>
-                    <img src={url} alt={`Demo image ${index + 1}`} />
-                    <figcaption>{selectedCase?.files[index] ?? `Image ${index + 1}`}</figcaption>
-                  </figure>
-                ))}
-              </div>
-            </div>
-          )}
-
-          {analysis && !analysis.ok ? (
-            <section className="error-band">
-              <h2>Request Status</h2>
-              <p>{analysis.error || analysis.errors?.join(" ") || "Analysis did not complete."}</p>
-            </section>
-          ) : null}
-        </section>
-      </section>
-
-      <section className="detail-grid">
-        <details>
-          <summary>Analysis limitations</summary>
-          <p>These answers are model interpretations of image previews. Segmentation masks, precise object counts, measured areas and calibrated SAR fusion require specialist models that are not connected.</p>
-        </details>
-
-        <details>
-          <summary>Input Metadata</summary>
-          {analysis?.input_metadata.length ? (
-            <pre>{JSON.stringify(analysis.input_metadata, null, 2)}</pre>
-          ) : (
-            <p>No analysed inputs yet.</p>
-          )}
-        </details>
-
-        <details>
-          <summary>Validation Checks</summary>
-          {analysis?.validation?.checks.length ? (
-            <div className="check-list">
-              {analysis.validation.checks.map((check) => (
-                <div key={`${check.name}-${check.message}`} className={`check ${check.status}`}>
-                  <strong>{check.name}</strong>
-                  <span>{check.message}</span>
-                </div>
-              ))}
-            </div>
-          ) : (
-            <p>No validation checks yet.</p>
-          )}
-        </details>
-
-        <details open={warnings.length > 0}>
-          <summary>Warnings</summary>
-          {warnings.length ? (
-            <ul className="warning-list">
-              {warnings.map((warning) => (
-                <li key={warning}>{warning}</li>
-              ))}
-            </ul>
-          ) : (
-            <p>No warnings were reported.</p>
-          )}
-        </details>
-
-        <details>
-          <summary>Execution Trace</summary>
-          {analysis?.trace.length ? (
-            <div className="trace-list">
-              {analysis.trace.map((step, index) => (
-                <div key={`${step.step}-${index}`}>
-                  <strong>{step.step}</strong>
-                  <span>{step.tool}</span>
-                  <small>{step.status} · {step.duration_ms} ms</small>
-                  <p>{step.message}</p>
-                </div>
-              ))}
-            </div>
-          ) : (
-            <p>No trace yet.</p>
-          )}
-        </details>
-
-        <details>
-          <summary>Routing</summary>
-          {analysis?.routing ? <pre>{JSON.stringify(analysis.routing, null, 2)}</pre> : <p>No route yet.</p>}
-        </details>
-      </section>
-
-      <footer className="footer-actions">
-        <button type="button" onClick={downloadReport} disabled={!analysis?.report}>
-          Download JSON Report
-        </button>
-      </footer>
+      <footer className="mt-8 flex flex-wrap items-center justify-between gap-3 text-[10px] text-muted-foreground/85"><span className="flex items-center gap-1.5"><Orbit className="size-3" />SatQuery AI <ChevronRight className="size-2.5" /> A new perspective on your imagery</span><span>Visual understanding · No measured areas or generated masks</span></footer>
     </main>
-  );
+  </div>;
 }
