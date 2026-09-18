@@ -136,6 +136,8 @@ details,
 }
 
 .control-panel {
+  margin: 0;
+  min-width: 0;
   display: grid;
   gap: 16px;
   padding: 18px;
@@ -374,7 +376,7 @@ figure img {
   display: block;
   width: 100%;
   aspect-ratio: 1 / 1;
-  object-fit: cover;
+  object-fit: contain;
   background: #e8eeeb;
 }
 
@@ -557,3 +559,9 @@ pre {
     font-size: 1.65rem;
   }
 }
+
+.preview-note { padding: 16px; color: var(--muted); }
+
+.cancel-action { margin-top: 10px; padding: 10px 16px; }
+.clarification { margin-top: 12px; font-weight: 700; }
+.answer-band li { margin-bottom: 8px; line-height: 1.5; }

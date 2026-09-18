@@ -1,6 +1,8 @@
 "use client";
 
-import { ChangeEvent, FormEvent, useEffect, useMemo, useState } from "react";
+import { ChangeEvent, FormEvent, useEffect, useMemo, useRef, useState } from "react";
+
+import { buildAnalysisForm } from "../lib/analysis-form";
 
 const API_BASE = "";
 const MODES = ["Auto Detect", "Single Image", "Bi-temporal Change", "Optical-SAR Pair"];
@@ -38,12 +40,12 @@ type Visual = {
 type AnalysisSummary = {
   task: string;
   answer: string;
-  reliability: string;
-  changed_or_detected_percentage: number;
-  explanation?: string;
-  metrics?: Record<string, unknown>;
-  area_measurement?: Record<string, unknown>;
-  all_warnings?: string[];
+  model: string;
+  reason: string;
+  clarification: string;
+  observations: { image: number; description: string }[];
+  limitations: string[];
+  all_warnings: string[];
 };
 
 type AnalyzeResponse = {
@@ -68,27 +70,28 @@ type AnalyzeResponse = {
   report?: string | null;
 };
 
-function formatValue(value: unknown): string {
-  if (typeof value === "number") {
-    return Number.isInteger(value) ? String(value) : value.toFixed(3).replace(/\.?0+$/, "");
-  }
-  if (typeof value === "string") {
-    return value;
-  }
-  if (typeof value === "boolean") {
-    return value ? "Yes" : "No";
-  }
-  if (value === null || value === undefined) {
-    return "None";
-  }
-  return JSON.stringify(value);
-}
-
 function imageUrl(url: string): string {
   if (url.startsWith("data:") || url.startsWith("http")) {
     return url;
   }
   return `${API_BASE}${url}`;
+}
+
+function UploadPreview({ file }: { file: File }) {
+  const [src, setSrc] = useState<string | null>(null);
+  const isTIFF = /\.tiff?$/i.test(file.name);
+  const tooLarge = file.size > 3_900_000;
+  useEffect(() => {
+    if (isTIFF || tooLarge) return;
+    const reader = new FileReader();
+    reader.onload = () => setSrc(String(reader.result));
+    reader.readAsDataURL(file);
+    return () => { reader.onload = null; reader.abort(); };
+  }, [file, isTIFF, tooLarge]);
+  return <figure>
+    {src ? <img src={src} alt={file.name} /> : <p className="preview-note">{tooLarge ? "This file exceeds the 3.9 MB upload limit." : isTIFF ? "TIFF preview available after analysis." : "Loading preview…"}</p>}
+    <figcaption>{file.name}</figcaption>
+  </figure>;
 }
 
 export default function Home() {
@@ -97,11 +100,12 @@ export default function Home() {
   const [inputSource, setInputSource] = useState<"demo" | "upload">("demo");
   const [analysisMode, setAnalysisMode] = useState(MODES[0]);
   const [query, setQuery] = useState("What major land-cover regions are visible?");
-  const [useAI, setUseAI] = useState(false);
+  const requestController = useRef<AbortController | null>(null);
   const [firstFile, setFirstFile] = useState<File | null>(null);
   const [secondFile, setSecondFile] = useState<File | null>(null);
   const [analysis, setAnalysis] = useState<AnalyzeResponse | null>(null);
   const [loading, setLoading] = useState(false);
+  const [aiConfigured, setAIConfigured] = useState(false);
   const [apiOnline, setApiOnline] = useState<boolean | null>(null);
 
   useEffect(() => {
@@ -110,7 +114,9 @@ export default function Home() {
     async function loadCases() {
       try {
         const healthResponse = await fetch(`${API_BASE}/api/health`);
+        const health = await healthResponse.json();
         if (active) {
+          setAIConfigured(health.ai?.configured === true);
           setApiOnline(healthResponse.ok);
         }
 
@@ -139,6 +145,7 @@ export default function Home() {
     loadCases();
     return () => {
       active = false;
+      requestController.current?.abort();
     };
   }, []);
 
@@ -150,7 +157,6 @@ export default function Home() {
   const visibleDemoImages = selectedCase?.image_urls.map(imageUrl) ?? [];
   const needsSecondUpload = inputSource === "upload" && analysisMode !== "Single Image";
   const warnings = analysis?.result?.all_warnings ?? analysis?.validation?.warnings ?? [];
-  const metricEntries = Object.entries(analysis?.result?.metrics ?? {});
 
   function selectDemoCase(demoCase: DemoCase) {
     setSelectedCaseId(demoCase.id);
@@ -162,6 +168,7 @@ export default function Home() {
 
   function onFileChange(which: "first" | "second", event: ChangeEvent<HTMLInputElement>) {
     const nextFile = event.target.files?.[0] ?? null;
+    setAnalysis(null);
     if (which === "first") {
       setFirstFile(nextFile);
     } else {
@@ -174,26 +181,14 @@ export default function Home() {
     setLoading(true);
     setAnalysis(null);
 
-    const form = new FormData();
-    form.append("input_source", inputSource);
-    form.append("demo_case", selectedCaseId);
-    form.append("analysis_mode", analysisMode);
-    form.append("query", query);
-    form.append("use_ai", String(useAI));
-    if (firstFile) {
-      form.append("first_image", firstFile);
-    }
-    if (secondFile) {
-      form.append("second_image", secondFile);
-    }
-
     try {
-      if (inputSource === "upload" && (firstFile?.size || 0) + (secondFile?.size || 0) > 3_900_000) {
-        throw new Error("Combined uploads must be smaller than 3.9 MB.");
-      }
+      const form = buildAnalysisForm({ inputSource, demoCase: selectedCaseId, mode: analysisMode, query, firstFile, secondFile });
+      const controller = new AbortController();
+      requestController.current = controller;
       const response = await fetch(`${API_BASE}/api/analyze`, {
         method: "POST",
-        body: form
+        body: form,
+        signal: AbortSignal.any([controller.signal, AbortSignal.timeout(90_000)])
       });
       if (!response.headers.get("content-type")?.includes("application/json")) {
         throw new Error(response.status === 413 ? "Uploads exceed the server's size limit." : `Analysis request failed (${response.status}).`);
@@ -203,13 +198,14 @@ export default function Home() {
     } catch (error) {
       setAnalysis({
         ok: false,
-        error: error instanceof Error ? error.message : "Request failed.",
+        error: error instanceof Error && error.name === "AbortError" ? "Analysis cancelled." : error instanceof Error && error.name === "TimeoutError" ? "Analysis timed out. Please retry." : error instanceof Error ? error.message : "Request failed.",
         errors: [],
         visuals: [],
         input_metadata: [],
         trace: []
       });
     } finally {
+      requestController.current = null;
       setLoading(false);
     }
   }
@@ -241,7 +237,8 @@ export default function Home() {
       </header>
 
       <section className="workspace">
-        <form className="control-panel" onSubmit={analyze}>
+        <form onSubmit={analyze}>
+        <fieldset className="control-panel" disabled={loading}>
           <div className="field-group">
             <label>Demo Case</label>
             <div className="segmented demo-grid">
@@ -265,14 +262,14 @@ export default function Home() {
                 <button
                   type="button"
                   className={inputSource === "demo" ? "selected" : ""}
-                  onClick={() => setInputSource("demo")}
+                  onClick={() => { if (selectedCase) selectDemoCase(selectedCase); }}
                 >
                   Demo
                 </button>
                 <button
                   type="button"
                   className={inputSource === "upload" ? "selected" : ""}
-                  onClick={() => setInputSource("upload")}
+                  onClick={() => { setInputSource("upload"); setAnalysis(null); }}
                 >
                   Upload
                 </button>
@@ -281,7 +278,7 @@ export default function Home() {
 
             <div className="field-group">
               <label htmlFor="analysis-mode">Analysis Mode</label>
-              <select id="analysis-mode" value={analysisMode} onChange={(event) => setAnalysisMode(event.target.value)}>
+              <select id="analysis-mode" value={analysisMode} onChange={(event) => { setAnalysisMode(event.target.value); setAnalysis(null); if (event.target.value === "Single Image") setSecondFile(null); }}>
                 {MODES.map((mode) => (
                   <option key={mode} value={mode}>
                     {mode}
@@ -300,7 +297,7 @@ export default function Home() {
               </label>
               {needsSecondUpload ? (
                 <label className="file-drop">
-                  <span>{analysisMode === "Optical-SAR Pair" ? "SAR Image" : "Second Image"}</span>
+                  <span>{analysisMode === "Optical-SAR Pair" ? "SAR Image" : analysisMode === "Auto Detect" ? "Second Image (optional)" : "Second Image"}</span>
                   <input type="file" accept=".png,.jpg,.jpeg,.tif,.tiff" onChange={(event) => onFileChange("second", event)} />
                   <strong>{secondFile?.name ?? "Choose file"}</strong>
                 </label>
@@ -310,17 +307,18 @@ export default function Home() {
 
           <div className="field-group">
             <label htmlFor="query">Natural-language Query</label>
-            <textarea id="query" value={query} onChange={(event) => setQuery(event.target.value)} rows={4} />
+            <textarea id="query" value={query} onChange={(event) => { setQuery(event.target.value); setAnalysis(null); }} maxLength={8000} rows={4} />
           </div>
 
-          <label className="toggle-row">
-            <input type="checkbox" checked={useAI} onChange={(event) => setUseAI(event.target.checked)} />
-            <span>Include AI answer</span>
-          </label>
+          <small>{aiConfigured ? "Analysis sends your question and image previews to the configured AI provider. Results are visual interpretations; pixel masks and measured areas are not available." : "AI analysis is not configured. Set a model and API key on the server to analyse images."}</small>
+          {analysisMode === "Bi-temporal Change" && <small>Upload the earlier image first and the later image second.</small>}
+          {analysisMode === "Optical-SAR Pair" && <small>Upload optical first and SAR second. Results describe visible evidence; calibrated sensor fusion is not available.</small>}
 
-          <button className="primary-action" type="submit" disabled={loading || apiOnline === false}>
-            {loading ? "Analysing" : "Analyse"}
+          <button className="primary-action" type="submit" disabled={loading || apiOnline !== true || !aiConfigured}>
+            {loading ? "Asking the model…" : "Analyse with AI"}
           </button>
+        </fieldset>
+        {loading && <button className="cancel-action" type="button" onClick={() => requestController.current?.abort()}>Cancel analysis</button>}
         </form>
 
         <section className="analysis-panel">
@@ -329,25 +327,31 @@ export default function Home() {
               <div className="metric-strip">
                 <div>
                   <span>Task</span>
-                  <strong>{analysis.result.task}</strong>
+                  <strong>{analysis.result.task.replaceAll("_", " ")}</strong>
                 </div>
                 <div>
-                  <span>Reliability</span>
-                  <strong>{analysis.result.reliability}</strong>
+                  <span>Model</span>
+                  <strong>{analysis.result.model}</strong>
                 </div>
                 <div>
-                  <span>Detected Area</span>
-                  <strong>{analysis.result.changed_or_detected_percentage.toFixed(1)}%</strong>
+                  <span>Result type</span>
+                  <strong>Visual interpretation</strong>
                 </div>
               </div>
 
               <section className="answer-band">
-                <h2>Answer</h2>
+                <h2>{analysis.result.task === "clarification" ? "Clarification needed" : analysis.result.task === "unsupported" ? "Capability unavailable" : "AI answer"}</h2>
                 <p>{analysis.result.answer}</p>
-                {analysis.result.explanation ? <small>{analysis.result.explanation}</small> : null}
+                {analysis.result.clarification && <p className="clarification">{analysis.result.clarification}</p>}
+                {analysis.result.task === "clarification" && <small>Update your question or analysis mode above, then analyse again.</small>}
               </section>
 
-              <section className="visual-grid" aria-label="Visual evidence">
+              {analysis.result.observations.length > 0 && <section className="answer-band">
+                <h2>Visual observations</h2>
+                <ul>{analysis.result.observations.map((observation, i) => <li key={i}><strong>Image {observation.image}:</strong> {observation.description}</li>)}</ul>
+              </section>}
+
+              <section className="visual-grid" aria-label="Source images">
                 {analysis.visuals.map((visual) => (
                   <figure key={visual.id}>
                     <img src={visual.src} alt={visual.label} />
@@ -359,11 +363,14 @@ export default function Home() {
           ) : (
             <div className="preview-stack">
               <div className="preview-copy">
-                <h2>{selectedCase?.name ?? "SatQuery AI"}</h2>
+                <h2>{inputSource === "upload" ? "Selected uploads" : selectedCase?.name ?? "SatQuery AI"}</h2>
                 <p>{query}</p>
               </div>
-              <div className="visual-grid preview-grid" aria-label="Selected demo images">
-                {visibleDemoImages.map((url, index) => (
+              <div className="visual-grid preview-grid" aria-label="Selected images">
+                {inputSource === "upload" ? <>
+                  {firstFile ? <UploadPreview key={`first-${firstFile.name}-${firstFile.lastModified}-${firstFile.size}`} file={firstFile} /> : <p>Choose an image to preview.</p>}
+                  {needsSecondUpload && secondFile && <UploadPreview key={`second-${secondFile.name}-${secondFile.lastModified}-${secondFile.size}`} file={secondFile} />}
+                </> : visibleDemoImages.map((url, index) => (
                   <figure key={url}>
                     <img src={url} alt={`Demo image ${index + 1}`} />
                     <figcaption>{selectedCase?.files[index] ?? `Image ${index + 1}`}</figcaption>
@@ -383,20 +390,9 @@ export default function Home() {
       </section>
 
       <section className="detail-grid">
-        <details open={metricEntries.length > 0}>
-          <summary>Metrics</summary>
-          {metricEntries.length ? (
-            <dl className="key-values">
-              {metricEntries.map(([key, value]) => (
-                <div key={key}>
-                  <dt>{key.replaceAll("_", " ")}</dt>
-                  <dd>{formatValue(value)}</dd>
-                </div>
-              ))}
-            </dl>
-          ) : (
-            <p>No metrics yet.</p>
-          )}
+        <details>
+          <summary>Analysis limitations</summary>
+          <p>These answers are model interpretations of image previews. Segmentation masks, precise object counts, measured areas and calibrated SAR fusion require specialist models that are not connected.</p>
         </details>
 
         <details>
