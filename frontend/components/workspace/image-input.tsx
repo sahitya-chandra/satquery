@@ -1,5 +1,7 @@
 "use client";
 
+import { IMAGE_ACCEPT } from "@/lib/analysis-options";
+
 import { useEffect, useId, useRef, useState } from "react";
 import { Expand, FileImage, ImagePlus, LoaderCircle, Upload, X } from "lucide-react";
 import { Button } from "@/components/ui/button";
@@ -58,7 +60,7 @@ export function ImageInput({ file, label, optional, disabled, multiple, serverPr
   const [dragging, setDragging] = useState(false);
   const dropDepth = useRef(0);
   return <div className="min-w-0" data-upload-label={label}>
-    <input ref={input} id={id} type="file" accept=".png,.jpg,.jpeg,.tif,.tiff" multiple={multiple} disabled={disabled} className="sr-only" aria-label={`Choose ${label.toLowerCase()}`} onChange={event => {
+    <input ref={input} id={id} type="file" accept={IMAGE_ACCEPT} multiple={multiple} disabled={disabled} className="sr-only" aria-label={`Choose ${label.toLowerCase()}`} onChange={event => {
       const files = Array.from(event.target.files || []);
       if (files.length) onFiles(files);
       event.target.value = "";

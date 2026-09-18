@@ -1,6 +1,6 @@
 import { errorPayload } from "../contracts";
 import { analyzeWithModel, modelFailure, validateModelAnalysis, type Inference } from "../ai-analysis";
-import { modes } from "../demo-cases";
+import { getAnalysisOption, MAX_QUERY_LENGTH } from "../analysis-options";
 import { alignPair, loadImage, visual, type InputImage } from "./images";
 
 export async function runAnalysis(input: { images: InputImage[]; query: string; analysis_mode: string; is_demo?: boolean; signal?: AbortSignal }, infer: Inference = analyzeWithModel) {
@@ -15,8 +15,9 @@ export async function runAnalysis(input: { images: InputImage[]; query: string; 
     return { status, payload };
   };
   const count = input.images.length;
-  const required = input.analysis_mode === "Single Image" ? 1 : ["Bi-temporal Change", "Optical-SAR Pair"].includes(input.analysis_mode) ? 2 : null;
-  if (!modes.includes(input.analysis_mode) || !input.query.trim() || input.query.length > 8000) return fail(400, "Choose a supported mode and enter a question (1–8000 characters).");
+  const option = getAnalysisOption(input.analysis_mode);
+  const required = option?.imageCount;
+  if (!option || !input.query.trim() || input.query.length > MAX_QUERY_LENGTH) return fail(400, "Choose a supported mode and enter a question (1–8000 characters).");
   if (!count || count > 2 || (required && count !== required)) return fail(400, `${input.analysis_mode} requires ${required || "one or two"} image(s).`);
   let started = Date.now();
   try {
@@ -48,7 +49,7 @@ export async function runAnalysis(input: { images: InputImage[]; query: string; 
     try {
       const response = await infer({ query: input.query.trim(), mode: input.analysis_mode, images: modelImages, warnings, signal: input.signal });
       const analysis = validateModelAnalysis(response.analysis);
-      const expectedTask = input.analysis_mode === "Bi-temporal Change" ? "change_comparison" : input.analysis_mode === "Optical-SAR Pair" ? "optical_sar_comparison" : input.analysis_mode === "Single Image" ? "visual_question" : null;
+      const expectedTask = option.task;
       const answered = !["clarification", "unsupported"].includes(analysis.task);
       if (analysis.observations.some(o => o.image > count)
         || (count < 2 && ["change_comparison", "optical_sar_comparison"].includes(analysis.task))

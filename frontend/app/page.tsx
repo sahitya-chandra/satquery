@@ -16,15 +16,12 @@ import { ImageInput, ImageView } from "@/components/workspace/image-input";
 import { AnalysisResult, LoadingAnalysis } from "@/components/workspace/analysis-result";
 import { buildAnalysisForm } from "@/lib/analysis-form";
 import { errorPayload, type AnalysisPayload } from "@/lib/contracts";
+import type { DemoCase } from "@/lib/demo-cases";
+import { analysisOptions, getAnalysisOption, MAX_QUERY_LENGTH, uploadError } from "@/lib/analysis-options";
 import { cn } from "@/lib/utils";
 
-type DemoCase = { id: string; name: string; mode: string; files: string[]; query: string; image_urls: string[] };
-const modeOptions = [
-  { value: "Auto Detect", label: "Let AI choose", icon: Sparkles, description: "The model chooses the analysis from your question and images." },
-  { value: "Single Image", label: "Explore one image", icon: ImageIcon, description: "Ask about visible features, land cover, or the overall scene." },
-  { value: "Bi-temporal Change", label: "Compare two dates", icon: Clock3, description: "Add the earlier image first, then the later image of the same place." },
-  { value: "Optical-SAR Pair", label: "Compare optical & SAR", icon: Radar, description: "Add optical first and SAR second for a qualitative visual comparison." },
-];
+const modeIcons = { "Auto Detect": Sparkles, "Single Image": ImageIcon, "Bi-temporal Change": Clock3, "Optical-SAR Pair": Radar };
+const modeOptions = analysisOptions.map(option => ({ ...option, icon: modeIcons[option.value] }));
 const exampleTitles: Record<string, string> = { single: "Explore a landscape", change: "Spot the differences", fusion: "Two sensor views" };
 
 async function readService(signal?: AbortSignal) {
@@ -61,12 +58,12 @@ export default function Home() {
   const question = useRef<HTMLTextAreaElement>(null);
   const highlightTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
   const selectedCase = cases.find(item => item.id === caseId);
-  const pairRequired = ["Bi-temporal Change", "Optical-SAR Pair"].includes(mode);
+  const selectedMode = modeOptions.find(item => item.value === mode)!;
+  const pairRequired = selectedMode.imageCount === 2;
   const showSecond = mode !== "Single Image" && (pairRequired || addSecond || !!second);
   const hasImages = source === "demo" ? !!selectedCase : !!first && (!pairRequired || !!second);
   const imageCount = source === "demo" ? selectedCase?.files.length || 0 : Number(!!first) + Number(showSecond && !!second);
-  const selectedMode = modeOptions.find(item => item.value === mode)!;
-  const suggestions = mode === "Bi-temporal Change" ? ["What changed between these dates?", "How has the vegetation changed?"] : mode === "Optical-SAR Pair" ? ["Compare the water patterns in both views.", "What can each sensor tell us?"] : ["Describe the main land-cover regions.", "Where is water visible?", "What stands out in this scene?"];
+  const { suggestions, labels } = selectedMode;
 
   const applyService = useCallback(([health, examples]: Awaited<ReturnType<typeof readService>>) => {
     setApiOnline(health.status === "fulfilled");
@@ -87,7 +84,7 @@ export default function Home() {
   function changeMode(value: string) {
     setMode(value); clearResult();
     if (source === "demo") {
-      const matchingId = value === "Single Image" ? "single" : value === "Bi-temporal Change" ? "change" : value === "Optical-SAR Pair" ? "fusion" : null;
+      const matchingId = getAnalysisOption(value)?.example;
       if (matchingId) setCaseId(matchingId);
     }
     if (value === "Single Image") { setSecond(null); setAddSecond(false); }
@@ -96,11 +93,11 @@ export default function Home() {
     if (loading || !files.length) return;
     const limit = position === "first" && mode !== "Single Image" ? 2 : 1;
     if (files.length > limit) { setInputError(`Choose up to ${limit} image${limit === 1 ? "" : "s"} for this slot.`); return; }
-    if (files.some(file => !file.size || !/\.(png|jpe?g|tiff?)$/i.test(file.name))) { setInputError("Choose a non-empty PNG, JPEG, TIFF or GeoTIFF image."); return; }
     const nextFirst = position === "first" ? files[0] : first;
     const nextSecond = position === "second" ? files[0] : files[1] || second;
     const activeSecond = mode === "Single Image" ? null : nextSecond;
-    if ((nextFirst?.size || 0) + (activeSecond?.size || 0) > 3_900_000) { setInputError("These images exceed the 3.9 MB combined limit. Choose smaller files or remove an image first."); return; }
+    const error = uploadError([nextFirst, activeSecond].filter((file): file is File => file !== null));
+    if (error) { setInputError(error); return; }
     setFirst(nextFirst); setSecond(activeSecond); if (activeSecond) setAddSecond(true); clearResult();
   }
   function reset() { setFirst(null); setSecond(null); setAddSecond(false); setSource("upload"); setQuery(""); setMode("Auto Detect"); clearResult(); question.current?.focus(); }
@@ -136,7 +133,6 @@ export default function Home() {
     if (highlightTimer.current) clearTimeout(highlightTimer.current);
     highlightTimer.current = setTimeout(() => setHighlightedImage(null), 2500);
   }
-  const labels = mode === "Bi-temporal Change" ? ["Earlier image", "Later image"] : mode === "Optical-SAR Pair" ? ["Optical image", "SAR image"] : ["Image 1", "Image 2"];
   const status = apiOnline === null ? "Connecting" : !apiOnline ? "Connection unavailable" : !aiConfigured ? "AI setup needed" : "AI connected";
   const error = analysis && !analysis.ok ? analysis.error : null;
 
@@ -184,7 +180,7 @@ export default function Home() {
             <div className="space-y-5 p-5">
               <div><label htmlFor="analysis-mode" className="mb-2 block text-[11px] font-semibold text-muted-foreground">ANALYSIS MODE</label><Select value={mode} onValueChange={changeMode} disabled={loading}><SelectTrigger id="analysis-mode" className="h-11 w-full bg-white"><SelectValue /></SelectTrigger><SelectContent>{modeOptions.map(item => <SelectItem key={item.value} value={item.value}><span className="flex items-center gap-2"><item.icon className="size-3.5 text-primary" />{item.label}</span></SelectItem>)}</SelectContent></Select><p className="mt-2 text-[11px] leading-5 text-muted-foreground">{selectedMode.description}</p></div>
               <Separator />
-              <div><label htmlFor="query" className="mb-2 block text-[11px] font-semibold text-muted-foreground">YOUR QUESTION</label><Textarea ref={question} id="query" value={query} onChange={event => { setQuery(event.target.value); clearResult(); }} disabled={loading} maxLength={8000} placeholder="What can you tell me about this landscape?" className="min-h-[135px] resize-y bg-[#fafcfb] p-3 text-sm leading-6 placeholder:text-muted-foreground/65" /><div className="mt-1.5 flex items-center justify-between text-[10px] text-muted-foreground"><span>Be as curious or specific as you like.</span><span aria-label={`${query.length} of 8000 characters`}>{query.length.toLocaleString()}/8,000</span></div></div>
+              <div><label htmlFor="query" className="mb-2 block text-[11px] font-semibold text-muted-foreground">YOUR QUESTION</label><Textarea ref={question} id="query" value={query} onChange={event => { setQuery(event.target.value); clearResult(); }} disabled={loading} maxLength={MAX_QUERY_LENGTH} placeholder="What can you tell me about this landscape?" className="min-h-[135px] resize-y bg-[#fafcfb] p-3 text-sm leading-6 placeholder:text-muted-foreground/65" /><div className="mt-1.5 flex items-center justify-between text-[10px] text-muted-foreground"><span>Be as curious or specific as you like.</span><span aria-label={`${query.length} of ${MAX_QUERY_LENGTH} characters`}>{query.length.toLocaleString()}/{MAX_QUERY_LENGTH.toLocaleString()}</span></div></div>
               <div><p className="mb-2.5 text-[10px] font-medium text-muted-foreground">NEED A STARTING POINT?</p><div className="flex flex-col gap-2">{suggestions.map(suggestion => <button type="button" key={suggestion} disabled={loading} onClick={() => { setQuery(suggestion); clearResult(); question.current?.focus(); }} className="group flex items-center justify-between gap-3 rounded-md border border-transparent px-2 py-1 text-left text-xs leading-5 text-muted-foreground transition-colors hover:border-border hover:bg-muted hover:text-foreground focus-visible:outline-2 disabled:opacity-50"><span>{suggestion}</span><ArrowUpRight className="size-3 shrink-0 text-muted-foreground/60 group-hover:text-primary" /></button>)}</div></div>
               <div className="pt-1"><Button type="submit" className="h-11 w-full gap-2 text-sm shadow-sm" disabled={loading || !apiOnline || !aiConfigured || !hasImages || !query.trim()} data-testid="analyze">{loading ? <><LoaderCircle className="size-4 animate-spin" />Analysing imagery…</> : <><Sparkles className="size-4" />Analyse imagery<ArrowRight className="ml-auto size-4" /></>}</Button><p className="mt-2 text-center text-[10px] text-muted-foreground">{!hasImages ? "Add your imagery to get started" : !query.trim() ? "Write a question or choose a suggestion" : "Ctrl / ⌘ + Enter to analyse"}</p></div>
               <p className="border-t pt-3 text-[10px] leading-[1.7] text-muted-foreground">Your question and image previews are sent to the configured AI provider when you analyse. Results are visual interpretations.</p>

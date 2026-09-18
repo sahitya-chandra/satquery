@@ -1,6 +1,7 @@
 import { readFile } from "node:fs/promises";
 import path from "node:path";
-import { demoCases, modes } from "../../../lib/demo-cases";
+import { demoCases } from "../../../lib/demo-cases";
+import { isSupportedImage, MAX_QUERY_LENGTH, modes } from "../../../lib/analysis-options";
 import { runAnalysis } from "../../../lib/analysis";
 import type { InputImage } from "../../../lib/analysis/images";
 import { errorPayload } from "../../../lib/contracts";
@@ -33,7 +34,7 @@ export async function POST(request: Request) {
     const inputSource = String(form.get("input_source") || "demo");
     const mode = String(form.get("analysis_mode") || modes[0]);
     const query = String(form.get("query") || "").trim();
-    if (!["demo", "upload"].includes(inputSource) || !modes.includes(mode) || !query || query.length > 8000) {
+    if (!["demo", "upload"].includes(inputSource) || !modes.includes(mode) || !query || query.length > MAX_QUERY_LENGTH) {
       return Response.json(errorPayload("Invalid input source, analysis mode, or query (1–8000 characters)."), { status: 400 });
     }
     const images: InputImage[] = [];
@@ -49,8 +50,7 @@ export async function POST(request: Request) {
           if (key === "first_image") return Response.json(errorPayload("A non-empty first image is required."), { status: 400 });
           continue;
         }
-        const extension = path.extname(file.name).toLowerCase();
-        if (![".png", ".jpg", ".jpeg", ".tif", ".tiff"].includes(extension)) return Response.json(errorPayload("Unsupported image format."), { status: 400 });
+        if (!isSupportedImage(file.name)) return Response.json(errorPayload("Unsupported image format."), { status: 400 });
         images.push({ data: Buffer.from(await file.arrayBuffer()), name: path.basename(file.name) });
       }
     }
