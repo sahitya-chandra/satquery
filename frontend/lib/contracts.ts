@@ -1,15 +1,12 @@
+import type { ModelAnalysis } from "./ai-analysis";
+
 export type AnalysisPayload = {
   ok: boolean;
   error: string | null;
   errors: string[];
-  result: null | {
-    task: string;
-    answer: string;
-    reliability: string;
-    explanation?: string;
-    metrics: Record<string, unknown>;
+  result: null | ModelAnalysis & {
+    model: string;
     all_warnings: string[];
-    [key: string]: unknown;
   };
   visuals: { id: string; label: string; src: string }[];
   input_metadata: Record<string, unknown>[];

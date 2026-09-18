@@ -42,6 +42,7 @@ export async function loadImage(input: InputImage): Promise<Raster> {
     if (bands < 1 || bands > 16 || originalWidth * originalHeight * bands > 16_000_000) {
       throw new Error("TIFF exceeds the 16-band or 16-million-sample limit.");
     }
+    warnings.push("TIFF previews use the first three bands (or first band for grayscale), independently contrast-stretched. Band order and natural colours are not verified; radiometric values are not sent to the model.");
     const samples = bands >= 3 ? [0, 1, 2] : [0];
     const raw = await image.readRasters({ samples, width, height, interleave: true });
     const nodata = image.getGDALNoData();
@@ -102,8 +103,8 @@ export async function loadImage(input: InputImage): Promise<Raster> {
       pixel_resolution: grid ? { x: Math.hypot(grid[0], grid[3]), y: Math.hypot(grid[1], grid[4]) } : null,
       bounds: corners.length ? { left: Math.min(...corners.map(p => p[0])), right: Math.max(...corners.map(p => p[0])), bottom: Math.min(...corners.map(p => p[1])), top: Math.max(...corners.map(p => p[1])) } : null,
     };
-    if (width !== originalWidth || height !== originalHeight) warnings.push("Image downsampled for bounded serverless analysis; percentages describe the analysis grid.");
-    if (valid.includes(0)) warnings.push("Nodata pixels are excluded from analysis percentages.");
+    if (width !== originalWidth || height !== originalHeight) warnings.push("Image downsampled for bounded serverless analysis; small features may be lost in model previews.");
+    if (valid.includes(0)) warnings.push("Nodata pixels are shown in grey and are not visual evidence.");
     return { data, valid, width, height, metadata, warnings, grid, projection };
   }
   const decoder = sharp(input.data, { limitInputPixels: MAX_PIXELS, failOn: "error" });
@@ -116,7 +117,7 @@ export async function loadImage(input: InputImage): Promise<Raster> {
     rgb.set(data.subarray(i * 4, i * 4 + 3), i * 3);
     valid[i] = Number(data[i * 4 + 3] > 0);
   }
-  if (width !== meta.width || height !== meta.height) warnings.push("Image downsampled for bounded serverless analysis; percentages describe the analysis grid.");
+  if (width !== meta.width || height !== meta.height) warnings.push("Image downsampled for bounded serverless analysis; small features may be lost in model previews.");
   return { data: rgb, valid, width, height, warnings, metadata: { name: input.name, format: meta.format?.toUpperCase(), width: meta.width, height: meta.height, analysis_width: width, analysis_height: height, bands: meta.channels, is_geotiff: false, crs: null, crs_is_projected: false, bounds: null, pixel_resolution: null, nodata: null, dtype: "uint8" } };
 }
 
@@ -159,7 +160,7 @@ export function alignPair(first: Raster, second: Raster): Raster {
   return { ...second, data, valid, width: first.width, height: first.height, warnings: [...second.warnings, note], metadata: { ...second.metadata, analysis_width: first.width, analysis_height: first.height, alignment_note: note } };
 }
 
-export async function visual(label: string, data: Uint8Array, width: number, height: number) {
-  const png = await sharp(data, { raw: { width, height, channels: 3 } }).resize({ width: 384, height: 384, fit: "inside", withoutEnlargement: true }).png().toBuffer();
+export async function visual(label: string, data: Uint8Array, width: number, height: number, maxSide = 384) {
+  const png = await sharp(data, { raw: { width, height, channels: 3 } }).resize({ width: maxSide, height: maxSide, fit: "inside", withoutEnlargement: true }).png().toBuffer();
   return { id: label.toLowerCase().replaceAll(" ", "-"), label, src: `data:image/png;base64,${png.toString("base64")}` };
 }

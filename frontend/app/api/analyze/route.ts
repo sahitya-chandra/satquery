@@ -4,7 +4,6 @@ import { demoCases, modes } from "../../../lib/demo-cases";
 import { runAnalysis } from "../../../lib/analysis";
 import type { InputImage } from "../../../lib/analysis/images";
 import { errorPayload } from "../../../lib/contracts";
-import { addAIAnswer } from "../../../lib/ai-analysis";
 
 export const runtime = "nodejs";
 export const maxDuration = 150;
@@ -34,8 +33,8 @@ export async function POST(request: Request) {
     const inputSource = String(form.get("input_source") || "demo");
     const mode = String(form.get("analysis_mode") || modes[0]);
     const query = String(form.get("query") || "").trim();
-    if (!["demo", "upload"].includes(inputSource) || !modes.includes(mode) || query.length > 8000) {
-      return Response.json(errorPayload("Invalid input source, analysis mode, or query (maximum 8000 characters)."), { status: 400 });
+    if (!["demo", "upload"].includes(inputSource) || !modes.includes(mode) || !query || query.length > 8000) {
+      return Response.json(errorPayload("Invalid input source, analysis mode, or query (1–8000 characters)."), { status: 400 });
     }
     const images: InputImage[] = [];
     if (inputSource === "demo") {
@@ -55,13 +54,12 @@ export async function POST(request: Request) {
         images.push({ data: Buffer.from(await file.arrayBuffer()), name: path.basename(file.name) });
       }
     }
-    const { status, payload } = await runAnalysis({ images, query, analysis_mode: mode });
-    if (form.get("use_ai") === "true") await addAIAnswer(payload, query);
+    const { status, payload } = await runAnalysis({ images, query, analysis_mode: mode, is_demo: inputSource === "demo", signal: request.signal });
     const body = JSON.stringify(payload);
     if (Buffer.byteLength(body) > maxBytes) return Response.json(errorPayload("Analysis response exceeds the 4 MB limit."), { status: 413 });
     return new Response(body, { status, headers: { "Content-Type": "application/json" } });
   } catch (error) {
-    console.error("Analysis request failed", error);
+    console.error("Analysis request failed", error instanceof Error ? error.name : "UnknownError");
     return Response.json(errorPayload("Analysis failed. Check the server logs."), { status: 500 });
   }
 }
