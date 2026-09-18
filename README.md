@@ -79,7 +79,7 @@ SATQUERY_TEST_LIVE=1 npm run test:api
 
 Set `SATQUERY_TEST_URL` for another origin. Unit tests use injected model responses and verify schema checks, clarification, errors, preview preparation, no heuristic fallback and geospatial handling. Live checks send bundled demo images to the configured provider and may consume quota.
 
-`generate_demo_data.py` is an optional synthetic illustration generator, not an analysis engine. Its dependencies are in `requirements.txt`; generated files for deployment live in `frontend/public/demo_data`.
+Bundled synthetic illustrations live only in `frontend/public/demo_data`. The Python generator, dependencies and virtual environment have been removed; development and deployment use Node.js only.
 
 Browser regressions can run against an already running Chrome/Chromium debugging session:
 

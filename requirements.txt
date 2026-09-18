@@ -1,4 +1,0 @@
-# Only needed to regenerate the synthetic demo illustrations.
-numpy>=1.26
-pillow>=10.0
-opencv-python-headless>=4.9
