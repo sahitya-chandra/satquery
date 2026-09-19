@@ -1,5 +1,5 @@
 import { generateText, jsonSchema, NoObjectGeneratedError, Output } from "ai";
-import { analysisModel } from "./models";
+import { analysisModel } from "@/lib/models";
 
 export const tasks = ["visual_question", "change_comparison", "optical_sar_comparison", "clarification", "unsupported"] as const;
 export type ModelAnalysis = {

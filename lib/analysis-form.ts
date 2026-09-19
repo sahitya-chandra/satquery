@@ -1,4 +1,4 @@
-import { getAnalysisOption, MAX_QUERY_LENGTH, uploadError } from "./analysis-options";
+import { getAnalysisOption, MAX_QUERY_LENGTH, uploadError } from "@/lib/analysis-options";
 
 export type AnalysisFormInput = {
   inputSource: "demo" | "upload";

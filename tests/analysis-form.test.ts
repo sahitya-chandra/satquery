@@ -1,8 +1,8 @@
 import assert from "node:assert/strict";
 import test from "node:test";
-import { buildAnalysisForm, type AnalysisFormInput } from "../lib/analysis-form";
-import { modelConfiguration } from "../lib/model-config";
-import { MAX_UPLOAD_BYTES, uploadError } from "../lib/analysis-options";
+import { buildAnalysisForm, type AnalysisFormInput } from "@/lib/analysis-form";
+import { modelConfiguration } from "@/lib/model-config";
+import { MAX_UPLOAD_BYTES, uploadError } from "@/lib/analysis-options";
 
 const base: AnalysisFormInput = {
   inputSource: "upload", demoCase: "single", mode: "Single Image", query: "Water?",

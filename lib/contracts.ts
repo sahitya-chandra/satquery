@@ -1,4 +1,4 @@
-import type { ModelAnalysis } from "./ai-analysis";
+import type { ModelAnalysis } from "@/lib/ai-analysis";
 
 export type AnalysisPayload = {
   ok: boolean;

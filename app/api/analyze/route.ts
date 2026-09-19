@@ -1,10 +1,10 @@
 import { readFile } from "node:fs/promises";
 import path from "node:path";
-import { demoCases } from "../../../lib/demo-cases";
-import { isSupportedImage, MAX_QUERY_LENGTH, modes } from "../../../lib/analysis-options";
-import { runAnalysis } from "../../../lib/analysis";
-import type { InputImage } from "../../../lib/analysis/images";
-import { errorPayload } from "../../../lib/contracts";
+import { demoCases } from "@/lib/demo-cases";
+import { isSupportedImage, MAX_QUERY_LENGTH, modes } from "@/lib/analysis-options";
+import { runAnalysis } from "@/lib/analysis";
+import type { InputImage } from "@/lib/analysis/images";
+import { errorPayload } from "@/lib/contracts";
 
 export const runtime = "nodejs";
 export const maxDuration = 150;

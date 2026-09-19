@@ -1,4 +1,4 @@
-import { modelConfiguration } from "../../../lib/model-config";
+import { modelConfiguration } from "@/lib/model-config";
 
 export const dynamic = "force-dynamic";
 

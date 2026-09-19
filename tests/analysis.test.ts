@@ -5,9 +5,9 @@ import sharp from "sharp";
 import { writeArrayBuffer } from "geotiff";
 import proj4 from "proj4";
 import { toProj4 } from "geotiff-geokeys-to-proj4";
-import { runAnalysis } from "../lib/analysis";
-import { alignPair, loadImage, type Grid } from "../lib/analysis/images";
-import { AnalysisFailure, validateModelAnalysis, type ModelAnalysis, type Inference } from "../lib/ai-analysis";
+import { runAnalysis } from "@/lib/analysis";
+import { alignPair, loadImage, type Grid } from "@/lib/analysis/images";
+import { AnalysisFailure, validateModelAnalysis, type ModelAnalysis, type Inference } from "@/lib/ai-analysis";
 
 async function scene(water = true, width = 96, height = 96) {
   const raw = Buffer.alloc(width * height * 3);

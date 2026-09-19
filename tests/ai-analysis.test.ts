@@ -1,8 +1,8 @@
 import assert from "node:assert/strict";
 import test from "node:test";
 import { MockLanguageModelV4 } from "ai/test";
-import { analyzeWithModel, AnalysisFailure, type ModelInput } from "../lib/ai-analysis";
-import { modelRegistry } from "../lib/models";
+import { analyzeWithModel, AnalysisFailure, type ModelInput } from "@/lib/ai-analysis";
+import { modelRegistry } from "@/lib/models";
 
 const input: ModelInput = { query: "What is visible?", mode: "Single Image", warnings: [], images: [{ label: "Image 1", metadata: {}, src: "data:image/png;base64,aGVsbG8=" }] };
 const answer = { task: "visual_question", reason: "Visual interpretation.", answer: "A lake is visible.", observations: [{ image: 1, description: "A blue region." }], limitations: [], clarification: "" };

@@ -2,7 +2,7 @@ import { createProviderRegistry } from "ai";
 import { openai } from "@ai-sdk/openai";
 import { anthropic } from "@ai-sdk/anthropic";
 import { google } from "@ai-sdk/google";
-import { modelConfiguration } from "./model-config";
+import { modelConfiguration } from "@/lib/model-config";
 
 // Add provider adapters here; model IDs stay in server-side configuration.
 export const modelRegistry = createProviderRegistry({ openai, anthropic, google });

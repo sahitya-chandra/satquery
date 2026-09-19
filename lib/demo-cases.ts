@@ -1,4 +1,4 @@
-import { modes } from "./analysis-options";
+import { modes } from "@/lib/analysis-options";
 export const demoCases = [
   { id: "single", name: "Single Image Analysis", mode: modes[0], files: ["single_optical.png"], query: "What major land-cover regions are visible?" },
   { id: "change", name: "Bi-temporal Change", mode: modes[2], files: ["change_before.png", "change_after.png"], query: "What changed between these two dates, and where?" },

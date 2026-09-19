@@ -1,7 +1,7 @@
-import { errorPayload } from "../contracts";
-import { analyzeWithModel, modelFailure, validateModelAnalysis, type Inference } from "../ai-analysis";
-import { getAnalysisOption, MAX_QUERY_LENGTH } from "../analysis-options";
-import { alignPair, loadImage, visual, type InputImage } from "./images";
+import { errorPayload } from "@/lib/contracts";
+import { analyzeWithModel, modelFailure, validateModelAnalysis, type Inference } from "@/lib/ai-analysis";
+import { getAnalysisOption, MAX_QUERY_LENGTH } from "@/lib/analysis-options";
+import { alignPair, loadImage, visual, type InputImage } from "@/lib/analysis/images";
 
 export async function runAnalysis(input: { images: InputImage[]; query: string; analysis_mode: string; is_demo?: boolean; signal?: AbortSignal }, infer: Inference = analyzeWithModel) {
   const payload = errorPayload("");
