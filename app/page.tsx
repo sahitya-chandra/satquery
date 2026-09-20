@@ -2,7 +2,7 @@
 
 import Link from "next/link";
 import { useCallback, useEffect, useRef, useState, type FormEvent } from "react";
-import { ArrowDown, ArrowRight, ArrowUpRight, Check, ChevronRight, CircleHelp, CirclePlus, Clock3, Compass, ImageIcon, Layers2, LoaderCircle, Orbit, Radar, RefreshCw, ScanLine, Sparkles, Upload, X } from "lucide-react";
+import { ArrowDown, ArrowRight, ArrowUpRight, Check, ChevronRight, CircleHelp, CirclePlus, Clock3, Compass, ImageIcon, Layers2, LoaderCircle, Network, Orbit, Radar, RefreshCw, ScanLine, Sparkles, Upload, X } from "lucide-react";
 import { Alert, AlertDescription, AlertTitle } from "@/components/ui/alert";
 import { Button } from "@/components/ui/button";
 import { Card } from "@/components/ui/card";
@@ -142,7 +142,7 @@ export default function Home() {
         <Link href="/" aria-label="SatQuery home" className="flex items-center gap-2.5"><span className="flex size-9 items-center justify-center rounded-xl bg-primary text-white"><Orbit className="size-5" strokeWidth={1.6} /></span><span className="text-xl font-semibold tracking-[-0.8px]">satquery<span className="text-primary">.</span></span></Link>
         <Separator orientation="vertical" className="hidden !h-5 sm:block" />
         <span className="hidden items-center gap-2 text-xs font-medium text-muted-foreground sm:flex"><Layers2 className="size-3.5" />Workspace</span>
-        <div className="ml-auto flex items-center gap-2 sm:gap-5"><span className="flex items-center gap-1.5 text-[11px] text-muted-foreground" role="status" data-testid="connection-status"><span className={cn("size-1.5 rounded-full", apiOnline && aiConfigured ? "bg-emerald-500" : apiOnline === null ? "animate-pulse bg-slate-400" : "bg-amber-500")} />{status}</span><Guide /></div>
+        <div className="ml-auto flex items-center gap-2 sm:gap-5"><span className="flex items-center gap-1.5 text-[11px] text-muted-foreground" role="status" data-testid="connection-status"><span className={cn("size-1.5 rounded-full", apiOnline && aiConfigured ? "bg-emerald-500" : apiOnline === null ? "animate-pulse bg-slate-400" : "bg-amber-500")} />{status}</span><Button variant="ghost" size="sm" asChild className="text-muted-foreground"><Link href="/report"><Network className="size-4 mr-1.5" /><span className="hidden sm:inline">Workflow</span></Link></Button><Guide /></div>
       </div>
     </header>
 

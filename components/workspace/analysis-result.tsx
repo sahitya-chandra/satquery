@@ -40,11 +40,16 @@ export function AnalysisResult({ analysis, onDownload, onEditQuestion, onViewIma
     if (timer.current) clearTimeout(timer.current);
     timer.current = setTimeout(() => setCopyState(""), 3000);
   }
+  function viewReport() {
+    window.open('/report', '_blank');
+  }
+
   return <Card className="gap-0 overflow-hidden py-0 shadow-[0_4px_24px_-16px_#17453140]" data-testid="analysis-result">
     <div className="flex flex-wrap items-center justify-between gap-3 border-b px-5 py-4 sm:px-7">
       <div className="flex items-center gap-3"><div className="flex size-8 items-center justify-center rounded-lg bg-accent"><Sparkles className="size-4 text-primary" /></div><h2 className="text-sm font-semibold">Your analysis</h2><Badge variant="secondary" className="hidden text-[10px] sm:inline-flex">{taskLabels[result.task] || result.task}</Badge></div>
       <div className="flex items-center gap-2">
         <Tooltip><TooltipTrigger asChild><Button type="button" variant="ghost" size="icon" className="size-8" aria-label="Copy answer" onClick={copy}>{copyState === "Copied" ? <Check className="size-4" /> : <Clipboard className="size-4" />}</Button></TooltipTrigger><TooltipContent>Copy answer</TooltipContent></Tooltip>
+        <Button type="button" variant="outline" size="sm" onClick={viewReport} data-testid="view-report"><ArrowUpRight className="size-3.5" />View Workflow</Button>
         <Button type="button" variant="outline" size="sm" onClick={onDownload} disabled={!analysis.report} data-testid="download-report"><Download className="size-3.5" />Export report</Button>
       </div>
     </div>
